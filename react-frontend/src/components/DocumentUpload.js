@@ -22,6 +22,7 @@ const DocumentUpload = ({ onClaimDataUpdate, onValidationUpdate }) => {
   const [analysisResult, setAnalysisResult] = useState(null);
   const [error, setError] = useState('');
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [manualText, setManualText] = useState('');
 
   const onDrop = useCallback((acceptedFiles) => {
     if (acceptedFiles.length > 0) {
@@ -100,6 +101,8 @@ const DocumentUpload = ({ onClaimDataUpdate, onValidationUpdate }) => {
         return <Badge bg="warning">Incomplete</Badge>;
       case 'INVALID':
         return <Badge bg="danger">Invalid</Badge>;
+      case 'OCR_REQUIRED':
+        return <Badge bg="info">OCR Required</Badge>;
       default:
         return <Badge bg="secondary">{status}</Badge>;
     }
@@ -226,6 +229,75 @@ const DocumentUpload = ({ onClaimDataUpdate, onValidationUpdate }) => {
               )}
             </Card.Body>
           </Card>
+
+          {/* Manual Text Input Alternative */}
+          <Card className="mt-3">
+            <Card.Header>
+              <h5><i className="fas fa-keyboard me-2"></i>Or Enter Text Manually</h5>
+              <p className="text-muted mb-0 small">
+                If you can't upload a file or OCR is unavailable, paste or type your claim text here
+              </p>
+            </Card.Header>
+            <Card.Body>
+              <Form.Group className="mb-3">
+                <Form.Control 
+                  as="textarea" 
+                  rows={8}
+                  placeholder="Paste your claim document text here...&#10;&#10;Example:&#10;Patient Name: John Doe&#10;Policy Number: POL123456&#10;Date of Service: 2024-11-01&#10;Provider: Medical Center&#10;Diagnosis: Annual checkup&#10;Amount: $150.00"
+                  value={manualText}
+                  onChange={(e) => setManualText(e.target.value)}
+                  disabled={isAnalyzing}
+                />
+              </Form.Group>
+              <Button 
+                variant="success" 
+                onClick={async () => {
+                  if (!manualText.trim()) {
+                    setError('Please enter some text to analyze');
+                    return;
+                  }
+                  setError('');
+                  setIsAnalyzing(true);
+                  try {
+                    // Call the API to analyze manually entered text
+                    const response = await claimsAPI.analyzeText(manualText, claimType);
+                    setAnalysisResult(response.data);
+                    
+                    // Update parent components with extracted data
+                    if (response.data.document_analysis && response.data.document_analysis.extracted_data) {
+                      onClaimDataUpdate(response.data.document_analysis.extracted_data);
+                      onValidationUpdate(response.data.document_analysis);
+                    }
+                  } catch (error) {
+                    setError(`Analysis failed: ${error.message}`);
+                  } finally {
+                    setIsAnalyzing(false);
+                  }
+                }}
+                disabled={!manualText.trim() || isAnalyzing}
+                className="me-2"
+              >
+                {isAnalyzing ? (
+                  <>
+                    <Spinner as="span" animation="border" size="sm" className="me-2" />
+                    Analyzing Text...
+                  </>
+                ) : (
+                  <>
+                    <i className="fas fa-search me-2"></i>
+                    Analyze Text
+                  </>
+                )}
+              </Button>
+              <Button 
+                variant="outline-secondary" 
+                onClick={() => setManualText('')}
+                disabled={isAnalyzing}
+              >
+                Clear Text
+              </Button>
+            </Card.Body>
+          </Card>
         </Col>
 
         {analysisResult && (
@@ -266,6 +338,31 @@ const DocumentUpload = ({ onClaimDataUpdate, onValidationUpdate }) => {
       {analysisResult && (
         <Row className="mt-4">
           <Col>
+            {/* Special display for OCR Required scenario */}
+            {analysisResult.document_analysis?.overall_status === 'OCR_REQUIRED' && (
+              <Alert variant="info" className="mb-4">
+                <Alert.Heading><i className="fas fa-image me-2"></i>Image Processing Required</Alert.Heading>
+                <p>This appears to be an image file that requires OCR (Optical Character Recognition) to extract text.</p>
+                <hr />
+                <div className="mb-3">
+                  <strong>To enable image text extraction:</strong>
+                  <ol className="mt-2">
+                    <li>Install Tesseract OCR from: <a href="https://github.com/UB-Mannheim/tesseract/wiki" target="_blank" rel="noopener noreferrer">https://github.com/UB-Mannheim/tesseract/wiki</a></li>
+                    <li>Add Tesseract to your system PATH</li>
+                    <li>Restart the backend server</li>
+                  </ol>
+                </div>
+                <div>
+                  <strong>Alternative options:</strong>
+                  <ul className="mt-2">
+                    <li>Convert your image to a PDF format</li>
+                    <li>Manually type the document content into the Claims Form tab</li>
+                    <li>Use an online OCR tool to extract text first</li>
+                  </ul>
+                </div>
+              </Alert>
+            )}
+
             <Accordion>
               <Accordion.Item eventKey="0">
                 <Accordion.Header>

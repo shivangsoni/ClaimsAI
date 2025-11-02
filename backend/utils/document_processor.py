@@ -6,6 +6,10 @@ from PIL import Image
 import pytesseract
 import PyPDF2
 import io
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 class DocumentProcessor:
     """
@@ -13,10 +17,12 @@ class DocumentProcessor:
     """
     
     def __init__(self):
-        # Set your OpenAI API key here or use environment variable
-        self.client = openai.OpenAI(
-            api_key=os.getenv('OPENAI_API_KEY', 'your-openai-api-key-here')
-        )
+        # Load OpenAI API key from .env file
+        api_key = os.getenv('openai.api_key') or os.getenv('OPENAI_API_KEY')
+        if not api_key:
+            raise ValueError("OpenAI API key not found. Please set 'openai.api_key' in your .env file")
+        
+        self.client = openai.OpenAI(api_key=api_key)
         
         # Reference claim document examples for comparison
         self.reference_documents = {
@@ -123,7 +129,11 @@ CLINICAL INFORMATION:
             if file_type.lower() in ['pdf']:
                 return self._extract_from_pdf(file_path)
             elif file_type.lower() in ['png', 'jpg', 'jpeg', 'tiff', 'bmp']:
-                return self._extract_from_image(file_path)
+                extracted_text = self._extract_from_image(file_path)
+                # Check if this is an OCR unavailable message
+                if "[IMAGE UPLOAD DETECTED - OCR NOT AVAILABLE]" in extracted_text:
+                    return extracted_text  # Return the helpful message as-is
+                return extracted_text
             else:
                 raise ValueError(f"Unsupported file type: {file_type}")
         except Exception as e:
@@ -142,19 +152,59 @@ CLINICAL INFORMATION:
         return text
     
     def _extract_from_image(self, file_path: str) -> str:
-        """Extract text from image using OCR"""
+        """Extract text from image using OCR (with fallback if Tesseract not available)"""
         try:
             image = Image.open(file_path)
             text = pytesseract.image_to_string(image)
             return text
         except Exception as e:
-            raise Exception(f"OCR extraction failed: {str(e)}")
+            # If Tesseract is not installed, return a helpful message instead of failing
+            if "tesseract" in str(e).lower() or "not installed" in str(e).lower():
+                return f"""
+[IMAGE UPLOAD DETECTED - OCR NOT AVAILABLE]
+
+This appears to be an image file that requires OCR (Optical Character Recognition) to extract text.
+
+To enable text extraction from images, please install Tesseract OCR:
+- Windows: Download from https://github.com/UB-Mannheim/tesseract/wiki
+- Add Tesseract to your system PATH
+
+For now, please:
+1. Convert your image to text manually, or
+2. Upload a PDF version of the document, or  
+3. Install Tesseract OCR for automatic text extraction
+
+Image file: {file_path}
+Error: {str(e)}
+"""
+            else:
+                raise Exception(f"Image processing failed: {str(e)}")
     
     def analyze_claim_document(self, document_text: str, claim_type: str = "medical_claim") -> Dict[str, Any]:
         """
         Analyze claim document using GPT-4 against reference documents
         """
         try:
+            # Check if this is an OCR unavailable message
+            if "[IMAGE UPLOAD DETECTED - OCR NOT AVAILABLE]" in document_text:
+                return {
+                    "overall_status": "OCR_REQUIRED",
+                    "completeness_score": 0,
+                    "missing_sections": ["Text extraction required"],
+                    "found_sections": [],
+                    "data_quality_issues": [],
+                    "validation_errors": [{"field": "ocr", "error": "Tesseract OCR not available", "expected_format": "Install Tesseract OCR"}],
+                    "recommendations": [
+                        "Install Tesseract OCR to extract text from images",
+                        "Convert image to PDF format",
+                        "Manually type the document content"
+                    ],
+                    "extracted_data": {},
+                    "confidence_level": 0,
+                    "processing_notes": document_text.strip(),
+                    "ocr_required": True
+                }
+            
             reference_doc = self.reference_documents.get(claim_type, self.reference_documents["medical_claim"])
             
             prompt = f"""
