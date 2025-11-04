@@ -137,6 +137,8 @@ CLINICAL INFORMATION:
                 if "[IMAGE UPLOAD DETECTED - OCR NOT AVAILABLE]" in extracted_text:
                     return extracted_text  # Return the helpful message as-is
                 return extracted_text
+            elif file_type.lower() == 'txt':
+                return self._extract_from_text(file_path)
             else:
                 raise ValueError(f"Unsupported file type: {file_type}")
         except Exception as e:
@@ -183,6 +185,14 @@ Error: {str(e)}
             else:
                 raise Exception(f"Image processing failed: {str(e)}")
     
+    def _extract_from_text(self, file_path: str) -> str:
+        """Extract text from plain text file"""
+        try:
+            with open(file_path, 'r', encoding='utf-8') as file:
+                return file.read()
+        except Exception as e:
+            raise Exception(f"Text file reading failed: {str(e)}")
+    
     def analyze_claim_document(self, document_text: str, claim_type: str = "medical_claim") -> Dict[str, Any]:
         """
         Analyze claim document using GPT-4 against reference documents
@@ -216,30 +226,57 @@ Error: {str(e)}
             reference_doc = self.reference_documents.get(claim_type, self.reference_documents["medical_claim"])
             
             prompt = f"""
-Analyze this insurance claim document and return results in JSON format:
+You are a senior medical claims adjuster with 10+ years of experience. Analyze this insurance claim document and make a coverage decision with detailed reasoning.
 
 DOCUMENT TO ANALYZE:
 {document_text}
 
 Return JSON with these fields:
 - overall_status: "APPROVED", "DENIED", or "NEEDS_REVIEW"
-- decision_reasoning: detailed explanation of why the claim was approved, denied, or needs review (minimum 3 sentences)
-- key_factors: array of 3-5 main factors that influenced the decision
-- completeness_score: 0-100
-- missing_sections: array of missing required sections
-- found_sections: array of sections found
-- validation_errors: array with field, error, expected_format
-- recommendations: array of improvement suggestions
-- extracted_data: object with patient_name, policy_number, service_date, billed_amount, etc.
-- confidence_level: 0-100
-- processing_notes: brief analysis summary
+- decision_reasoning: Detailed explanation (4-6 sentences) of your decision including:
+  * What specific evidence supported your decision
+  * Any red flags or positive indicators found
+  * Compliance with standard insurance practices
+  * Risk assessment considerations
+- key_factors: Array of 3-5 specific factors that most influenced your decision
+- completeness_score: 0-100 (percentage of required information present)
+- missing_sections: Array of missing required sections/information
+- found_sections: Array of sections/information that were found and complete
+- validation_errors: Array of specific issues found (field, error description, expected format)
+- recommendations: Array of specific actionable recommendations
+- extracted_data: Object with all extracted information:
+  * patient_name, patient_id, policy_number, service_date
+  * provider_name, diagnosis_code, procedure_code  
+  * billed_amount, service_type, etc.
+- confidence_level: 0-100 (how confident you are in this decision)
+- processing_notes: Summary of your analysis process and key observations
 
-DECISION CRITERIA:
-APPROVED: All required information present, valid policy, within coverage limits, proper documentation
-DENIED: Missing critical information, expired/invalid policy, fraudulent indicators, outside coverage
-NEEDS_REVIEW: Incomplete information but potentially valid, unusual circumstances, borderline cases
+DECISION CRITERIA FOR CLAIMS ADJUDICATION:
 
-Provide clear, specific reasoning for your decision based on standard insurance industry practices.
+APPROVED - Recommend for payment when:
+✓ All required patient and provider information is complete and verified
+✓ Policy is active and covers the claimed services  
+✓ Diagnosis codes align with procedures performed
+✓ Charges are within reasonable and customary limits
+✓ Proper authorization obtained for specialized services
+✓ No fraud indicators detected
+
+DENIED - Reject payment when:
+✗ Missing critical information (patient ID, policy number, dates)
+✗ Policy expired, suspended, or doesn't cover claimed services
+✗ Fraudulent indicators (duplicate claims, suspicious patterns)
+✗ Services not medically necessary or experimental
+✗ Billing errors or inflated charges
+✗ Prior authorization missing for required procedures
+
+NEEDS_REVIEW - Flag for manual review when:
+⚠ Unusual circumstances requiring medical director review
+⚠ High-cost claims near policy limits  
+⚠ Incomplete but potentially valid information
+⚠ Complex cases requiring additional documentation
+⚠ First-time providers or unusual billing patterns
+
+Analyze this claim as if making a real coverage decision that affects both patient care and company liability. Be thorough, fair, and follow industry best practices.
 """
 
             response = self.client.chat.completions.create(

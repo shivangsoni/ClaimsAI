@@ -122,6 +122,22 @@ class DatabaseManager:
                 )
             ''')
             
+            # Create documents table for storing uploaded files
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS documents (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    claim_id TEXT NOT NULL,
+                    original_filename TEXT NOT NULL,
+                    stored_filename TEXT NOT NULL,
+                    file_type TEXT NOT NULL,
+                    file_size INTEGER,
+                    file_path TEXT NOT NULL,
+                    extracted_text TEXT,
+                    upload_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (claim_id) REFERENCES claims (claim_id)
+                )
+            ''')
+            
             conn.commit()
             self.insert_sample_data()
     
@@ -346,13 +362,52 @@ class DatabaseManager:
             cursor.execute('SELECT * FROM reviewer_validations WHERE claim_id = ? ORDER BY created_at', (claim_id,))
             reviews = [dict(row) for row in cursor.fetchall()]
             
+            # Get documents
+            cursor.execute('SELECT * FROM documents WHERE claim_id = ? ORDER BY upload_timestamp', (claim_id,))
+            documents = [dict(row) for row in cursor.fetchall()]
+            
             return {
                 'claim': dict(claim),
                 'validations': validations,
                 'eligibility': eligibility,
                 'recommendations': recommendations,
-                'reviews': reviews
+                'reviews': reviews,
+                'documents': documents
             }
+
+    def save_document(self, claim_id, document_info):
+        """
+        Save document information to database
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                INSERT INTO documents 
+                (claim_id, original_filename, stored_filename, file_type, 
+                 file_size, file_path, extracted_text)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                claim_id,
+                document_info['original_filename'],
+                document_info['stored_filename'], 
+                document_info['file_type'],
+                document_info['file_size'],
+                document_info['file_path'],
+                document_info.get('extracted_text', '')
+            ))
+            
+            conn.commit()
+            return cursor.lastrowid
+
+    def get_documents_for_claim(self, claim_id):
+        """
+        Get all documents for a specific claim
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM documents WHERE claim_id = ? ORDER BY upload_timestamp', (claim_id,))
+            return [dict(row) for row in cursor.fetchall()]
 
 # Initialize database when module is imported
 if __name__ == '__main__':

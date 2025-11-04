@@ -52,6 +52,24 @@ export const claimsAPI = {
     return response.data;
   },
 
+  // Get all claims with pagination and filtering
+  getAllClaims: async (params = {}) => {
+    const response = await api.get('/claims/list', { params });
+    return response.data;
+  },
+
+  // Get detailed claim information
+  getClaimDetails: async (claimId) => {
+    const response = await api.get(`/claims/details/${claimId}`);
+    return response.data;
+  },
+
+  // Get dashboard statistics
+  getClaimsStats: async () => {
+    const response = await api.get('/claims/stats');
+    return response.data;
+  },
+
   // Check eligibility
   checkEligibility: async (eligibilityData) => {
     const response = await api.post('/eligibility/check', eligibilityData);

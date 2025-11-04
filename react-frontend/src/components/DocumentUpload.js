@@ -1,21 +1,15 @@
 import React, { useState, useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
-import { 
-  Card, 
-  Button, 
-  Form, 
-  Alert, 
-  Spinner, 
-  Badge, 
-  Row, 
-  Col, 
-  ListGroup,
-  Accordion,
-  ProgressBar 
-} from 'react-bootstrap';
+import { Link } from 'react-router-dom';
+import { Button } from './ui/button';
+import { Card, CardContent } from './ui/card';
+import { Label } from './ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
+import { Badge } from './ui/badge';
+import { ArrowLeft, Upload, FileText, CheckCircle2, XCircle, AlertTriangle } from 'lucide-react';
 import { claimsAPI } from '../services/api';
 
-const DocumentUpload = ({ onClaimDataUpdate, onValidationUpdate }) => {
+const DocumentUpload = ({ onClaimDataUpdate, onValidationUpdate, apiStatus }) => {
   const [file, setFile] = useState(null);
   const [claimType, setClaimType] = useState('medical_claim');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
