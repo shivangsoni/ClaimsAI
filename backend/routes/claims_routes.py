@@ -125,14 +125,39 @@ def upload_claim_document():
         if not document_text.strip():
             return jsonify({'error': 'No text could be extracted from the document'}), 400
         
-        # Analyze with GPT-4
-        analysis_result = processor.analyze_claim_document(document_text, claim_type)
+        # Analyze with GPT-4 (with timeout handling)
+        try:
+            print(f"Starting analysis for document: {filename}")
+            analysis_result = processor.analyze_claim_document(document_text, claim_type)
+            print(f"Analysis completed for document: {filename}")
+        except Exception as analysis_error:
+            print(f"Analysis failed for document: {filename}, Error: {str(analysis_error)}")
+            # Return partial result with error info
+            analysis_result = {
+                "overall_status": "ERROR",
+                "completeness_score": 0,
+                "missing_sections": ["Analysis failed"],
+                "found_sections": [],
+                "data_quality_issues": [],
+                "validation_errors": [{"field": "analysis", "error": str(analysis_error), "expected_format": "valid_processing"}],
+                "recommendations": ["Try with a smaller document", "Check document format"],
+                "extracted_data": {},
+                "confidence_level": 0,
+                "processing_notes": f"Analysis failed: {str(analysis_error)}"
+            }
         
         # Get improvement suggestions
         suggestions = processor.get_improvement_suggestions(analysis_result)
         
-        # Compare with approved claims
-        comparison = processor.compare_with_approved_claims(document_text)
+        # Skip detailed comparison if analysis failed
+        if analysis_result.get("overall_status") != "ERROR":
+            try:
+                comparison = processor.compare_with_approved_claims(document_text)
+            except Exception as comp_error:
+                print(f"Comparison failed: {str(comp_error)}")
+                comparison = {"error": "Comparison analysis failed", "details": str(comp_error)}
+        else:
+            comparison = {"error": "Skipped due to analysis failure"}
         
         # Generate claim ID
         claim_id = f"DOC_{timestamp}"
@@ -200,14 +225,38 @@ def analyze_text_directly():
         
         processor = DocumentProcessor()
         
-        # Analyze with GPT-4
-        analysis_result = processor.analyze_claim_document(text, claim_type)
+        # Analyze with GPT-4 (with timeout handling)
+        try:
+            print("Starting text analysis...")
+            analysis_result = processor.analyze_claim_document(text, claim_type)
+            print("Text analysis completed")
+        except Exception as analysis_error:
+            print(f"Text analysis failed: {str(analysis_error)}")
+            analysis_result = {
+                "overall_status": "ERROR",
+                "completeness_score": 0,
+                "missing_sections": ["Analysis failed"],
+                "found_sections": [],
+                "data_quality_issues": [],
+                "validation_errors": [{"field": "analysis", "error": str(analysis_error), "expected_format": "valid_processing"}],
+                "recommendations": ["Try with shorter text", "Check text format"],
+                "extracted_data": {},
+                "confidence_level": 0,
+                "processing_notes": f"Analysis failed: {str(analysis_error)}"
+            }
         
         # Get improvement suggestions
         suggestions = processor.get_improvement_suggestions(analysis_result)
         
-        # Compare with approved claims
-        comparison = processor.compare_with_approved_claims(text)
+        # Skip detailed comparison if analysis failed
+        if analysis_result.get("overall_status") != "ERROR":
+            try:
+                comparison = processor.compare_with_approved_claims(text)
+            except Exception as comp_error:
+                print(f"Comparison failed: {str(comp_error)}")
+                comparison = {"error": "Comparison analysis failed", "details": str(comp_error)}
+        else:
+            comparison = {"error": "Skipped due to analysis failure"}
         
         response = {
             'status': 'analyzed',

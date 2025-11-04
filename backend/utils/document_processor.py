@@ -22,7 +22,10 @@ class DocumentProcessor:
         if not api_key:
             raise ValueError("OpenAI API key not found. Please set 'openai.api_key' in your .env file")
         
-        self.client = openai.OpenAI(api_key=api_key)
+        self.client = openai.OpenAI(
+            api_key=api_key,
+            timeout=60.0  # Default 60 second timeout for all requests
+        )
         
         # Reference claim document examples for comparison
         self.reference_documents = {
@@ -205,72 +208,42 @@ Error: {str(e)}
                     "ocr_required": True
                 }
             
+            # Truncate very large documents to prevent timeout
+            max_length = 4000  # Limit document length
+            if len(document_text) > max_length:
+                document_text = document_text[:max_length] + "\n[DOCUMENT TRUNCATED - SHOWING FIRST 4000 CHARACTERS]"
+            
             reference_doc = self.reference_documents.get(claim_type, self.reference_documents["medical_claim"])
             
             prompt = f"""
-You are an expert medical claims analyst. Compare the submitted claim document against the reference approved claim to identify missing sections, errors, or inconsistencies.
+Analyze this insurance claim document and return results in JSON format:
 
-REFERENCE APPROVED CLAIM:
-{reference_doc}
-
-SUBMITTED CLAIM DOCUMENT:
+DOCUMENT TO ANALYZE:
 {document_text}
 
-Please analyze the submitted claim and provide a detailed assessment in the following JSON format:
+Return JSON with these fields:
+- overall_status: "APPROVED", "DENIED", or "NEEDS_REVIEW"
+- decision_reasoning: detailed explanation of why the claim was approved, denied, or needs review (minimum 3 sentences)
+- key_factors: array of 3-5 main factors that influenced the decision
+- completeness_score: 0-100
+- missing_sections: array of missing required sections
+- found_sections: array of sections found
+- validation_errors: array with field, error, expected_format
+- recommendations: array of improvement suggestions
+- extracted_data: object with patient_name, policy_number, service_date, billed_amount, etc.
+- confidence_level: 0-100
+- processing_notes: brief analysis summary
 
-{{
-    "overall_status": "COMPLETE|INCOMPLETE|INVALID",
-    "completeness_score": 0-100,
-    "missing_sections": [
-        "List of missing required sections"
-    ],
-    "found_sections": [
-        "List of sections that were found"
-    ],
-    "data_quality_issues": [
-        {{
-            "section": "section_name",
-            "issue": "description of the issue",
-            "severity": "HIGH|MEDIUM|LOW"
-        }}
-    ],
-    "validation_errors": [
-        {{
-            "field": "field_name", 
-            "error": "description of validation error",
-            "expected_format": "expected format or value"
-        }}
-    ],
-    "recommendations": [
-        "List of specific recommendations to improve the claim"
-    ],
-    "extracted_data": {{
-        "patient_name": "extracted or null",
-        "patient_id": "extracted or null",
-        "date_of_birth": "extracted or null",
-        "policy_number": "extracted or null",
-        "provider_name": "extracted or null",
-        "service_date": "extracted or null",
-        "diagnosis_code": "extracted or null",
-        "procedure_code": "extracted or null",
-        "billed_amount": "extracted or null"
-    }},
-    "confidence_level": 0-100,
-    "processing_notes": "Any additional notes about the analysis"
-}}
+DECISION CRITERIA:
+APPROVED: All required information present, valid policy, within coverage limits, proper documentation
+DENIED: Missing critical information, expired/invalid policy, fraudulent indicators, outside coverage
+NEEDS_REVIEW: Incomplete information but potentially valid, unusual circumstances, borderline cases
 
-Focus on:
-1. Required sections presence (patient info, provider info, service details, billing)
-2. Data format validation (dates, codes, amounts)
-3. Logical consistency (dates, amounts, codes matching)
-4. Completeness of supporting documentation
-5. Proper authorization and signatures
-
-Be thorough and specific in your analysis.
+Provide clear, specific reasoning for your decision based on standard insurance industry practices.
 """
 
             response = self.client.chat.completions.create(
-                model="gpt-4",
+                model="gpt-4o-mini",
                 messages=[
                     {
                         "role": "system", 
@@ -282,13 +255,28 @@ Be thorough and specific in your analysis.
                     }
                 ],
                 temperature=0.1,
-                max_tokens=2000
+                max_tokens=2000,
+                timeout=60  # Set 60 second timeout
             )
             
             # Parse the JSON response
             import json
             try:
-                analysis_result = json.loads(response.choices[0].message.content)
+                content = response.choices[0].message.content
+                
+                # Handle markdown code blocks (remove ```json and ```)
+                if content.strip().startswith('```json'):
+                    content = content.strip()[7:]  # Remove ```json
+                if content.strip().endswith('```'):
+                    content = content.strip()[:-3]  # Remove ```
+                elif content.strip().startswith('```'):
+                    # Handle just ``` without json
+                    content = content.strip()[3:]
+                    if content.endswith('```'):
+                        content = content[:-3]
+                
+                content = content.strip()
+                analysis_result = json.loads(content)
                 analysis_result["raw_gpt_response"] = response.choices[0].message.content
                 return analysis_result
             except json.JSONDecodeError:
@@ -308,18 +296,37 @@ Be thorough and specific in your analysis.
                 }
                 
         except Exception as e:
-            return {
-                "overall_status": "ERROR",
-                "completeness_score": 0,
-                "missing_sections": ["Analysis failed"],
-                "found_sections": [],
-                "data_quality_issues": [],
-                "validation_errors": [{"field": "system", "error": str(e), "expected_format": "valid_document"}],
-                "recommendations": ["Please check the document and try again"],
-                "extracted_data": {},
-                "confidence_level": 0,
-                "processing_notes": f"System error: {str(e)}"
-            }
+            error_msg = str(e).lower()
+            if "timeout" in error_msg or "timed out" in error_msg:
+                return {
+                    "overall_status": "TIMEOUT",
+                    "completeness_score": 0,
+                    "missing_sections": ["Analysis timed out"],
+                    "found_sections": [],
+                    "data_quality_issues": [],
+                    "validation_errors": [{"field": "processing", "error": "Analysis timeout - document too large or complex", "expected_format": "smaller_document"}],
+                    "recommendations": [
+                        "Try with a smaller document",
+                        "Break large documents into sections",
+                        "Ensure document is properly formatted"
+                    ],
+                    "extracted_data": {},
+                    "confidence_level": 0,
+                    "processing_notes": f"Analysis timed out after 60 seconds. Document may be too large or complex for processing."
+                }
+            else:
+                return {
+                    "overall_status": "ERROR",
+                    "completeness_score": 0,
+                    "missing_sections": ["Analysis failed"],
+                    "found_sections": [],
+                    "data_quality_issues": [],
+                    "validation_errors": [{"field": "system", "error": str(e), "expected_format": "valid_document"}],
+                    "recommendations": ["Please check the document and try again"],
+                    "extracted_data": {},
+                    "confidence_level": 0,
+                    "processing_notes": f"System error: {str(e)}"
+                }
     
     def get_improvement_suggestions(self, analysis_result: Dict[str, Any]) -> Dict[str, Any]:
         """

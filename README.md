@@ -94,7 +94,8 @@ ClaimsAI/
 │   ├── requirements.txt       # Python dependencies
 │   ├── routes/               # API route handlers
 │   ├── utils/                # Core utilities
-│   └── uploads/              # Uploaded documents
+│   ├── uploads/              # Uploaded documents
+│   └── database/             # SQLite database (auto-created)
 ├── react-frontend/
 │   ├── src/
 │   │   ├── components/       # React components

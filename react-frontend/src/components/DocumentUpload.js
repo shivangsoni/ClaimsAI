@@ -22,7 +22,6 @@ const DocumentUpload = ({ onClaimDataUpdate, onValidationUpdate }) => {
   const [analysisResult, setAnalysisResult] = useState(null);
   const [error, setError] = useState('');
   const [uploadProgress, setUploadProgress] = useState(0);
-  const [manualText, setManualText] = useState('');
 
   const onDrop = useCallback((acceptedFiles) => {
     if (acceptedFiles.length > 0) {
@@ -129,7 +128,7 @@ const DocumentUpload = ({ onClaimDataUpdate, onValidationUpdate }) => {
             <Card.Header>
               <h3><i className="fas fa-upload me-2"></i>Upload Claim Document</h3>
               <p className="text-muted mb-0">
-                Upload PDF or image files for AI-powered analysis using GPT-4
+                Upload PDF or image files for AI-powered analysis using GPT-4 Mini
               </p>
             </Card.Header>
             <Card.Body>
@@ -204,7 +203,7 @@ const DocumentUpload = ({ onClaimDataUpdate, onValidationUpdate }) => {
                 {isAnalyzing ? (
                   <>
                     <Spinner as="span" animation="border" size="sm" className="me-2" />
-                    Analyzing with GPT-4...
+                    Analyzing with GPT-4 Mini...
                   </>
                 ) : (
                   <>
@@ -230,74 +229,7 @@ const DocumentUpload = ({ onClaimDataUpdate, onValidationUpdate }) => {
             </Card.Body>
           </Card>
 
-          {/* Manual Text Input Alternative */}
-          <Card className="mt-3">
-            <Card.Header>
-              <h5><i className="fas fa-keyboard me-2"></i>Or Enter Text Manually</h5>
-              <p className="text-muted mb-0 small">
-                If you can't upload a file or OCR is unavailable, paste or type your claim text here
-              </p>
-            </Card.Header>
-            <Card.Body>
-              <Form.Group className="mb-3">
-                <Form.Control 
-                  as="textarea" 
-                  rows={8}
-                  placeholder="Paste your claim document text here...&#10;&#10;Example:&#10;Patient Name: John Doe&#10;Policy Number: POL123456&#10;Date of Service: 2024-11-01&#10;Provider: Medical Center&#10;Diagnosis: Annual checkup&#10;Amount: $150.00"
-                  value={manualText}
-                  onChange={(e) => setManualText(e.target.value)}
-                  disabled={isAnalyzing}
-                />
-              </Form.Group>
-              <Button 
-                variant="success" 
-                onClick={async () => {
-                  if (!manualText.trim()) {
-                    setError('Please enter some text to analyze');
-                    return;
-                  }
-                  setError('');
-                  setIsAnalyzing(true);
-                  try {
-                    // Call the API to analyze manually entered text
-                    const response = await claimsAPI.analyzeText(manualText, claimType);
-                    setAnalysisResult(response.data);
-                    
-                    // Update parent components with extracted data
-                    if (response.data.document_analysis && response.data.document_analysis.extracted_data) {
-                      onClaimDataUpdate(response.data.document_analysis.extracted_data);
-                      onValidationUpdate(response.data.document_analysis);
-                    }
-                  } catch (error) {
-                    setError(`Analysis failed: ${error.message}`);
-                  } finally {
-                    setIsAnalyzing(false);
-                  }
-                }}
-                disabled={!manualText.trim() || isAnalyzing}
-                className="me-2"
-              >
-                {isAnalyzing ? (
-                  <>
-                    <Spinner as="span" animation="border" size="sm" className="me-2" />
-                    Analyzing Text...
-                  </>
-                ) : (
-                  <>
-                    <i className="fas fa-search me-2"></i>
-                    Analyze Text
-                  </>
-                )}
-              </Button>
-              <Button 
-                variant="outline-secondary" 
-                onClick={() => setManualText('')}
-                disabled={isAnalyzing}
-              >
-                Clear Text
-              </Button>
-            </Card.Body>
-          </Card>
+
         </Col>
 
         {analysisResult && (
@@ -318,17 +250,19 @@ const DocumentUpload = ({ onClaimDataUpdate, onValidationUpdate }) => {
                   </span>
                 </div>
                 <div className="mb-2">
-                  <strong>Best Match: </strong>
-                  <Badge bg="secondary">
-                    {analysisResult.comparison_with_approved?.best_match_type?.replace('_', ' ').toUpperCase()}
-                  </Badge>
-                </div>
-                <div className="mb-2">
                   <strong>Confidence: </strong>
                   <Badge bg="primary">
                     {analysisResult.document_analysis?.confidence_level || 0}%
                   </Badge>
                 </div>
+                {analysisResult.document_analysis?.decision_reasoning && (
+                  <div className="mt-3 p-3 bg-light rounded">
+                    <h6><i className="fas fa-gavel me-2"></i>Decision Reasoning</h6>
+                    <p className="mb-0 small">
+                      {analysisResult.document_analysis.decision_reasoning}
+                    </p>
+                  </div>
+                )}
               </Card.Body>
             </Card>
           </Col>
@@ -365,6 +299,39 @@ const DocumentUpload = ({ onClaimDataUpdate, onValidationUpdate }) => {
 
             <Accordion>
               <Accordion.Item eventKey="0">
+                <Accordion.Header>
+                  <i className="fas fa-gavel me-2"></i>
+                  Decision Analysis & Reasoning
+                </Accordion.Header>
+                <Accordion.Body>
+                  {analysisResult.document_analysis?.decision_reasoning && (
+                    <div className="mb-4">
+                      <h6 className="text-primary">AI Decision Reasoning</h6>
+                      <div className="p-3 bg-light rounded">
+                        <p className="mb-0">
+                          {analysisResult.document_analysis.decision_reasoning}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {analysisResult.document_analysis?.key_factors && analysisResult.document_analysis.key_factors.length > 0 && (
+                    <div className="mb-4">
+                      <h6 className="text-info">Key Decision Factors</h6>
+                      <ListGroup>
+                        {analysisResult.document_analysis.key_factors.map((factor, idx) => (
+                          <ListGroup.Item key={idx} className="d-flex align-items-center">
+                            <i className="fas fa-check-circle text-success me-2"></i>
+                            {factor}
+                          </ListGroup.Item>
+                        ))}
+                      </ListGroup>
+                    </div>
+                  )}
+                </Accordion.Body>
+              </Accordion.Item>
+
+              <Accordion.Item eventKey="1">
                 <Accordion.Header>
                   <i className="fas fa-search me-2"></i>
                   Detailed Analysis Results
@@ -411,7 +378,7 @@ const DocumentUpload = ({ onClaimDataUpdate, onValidationUpdate }) => {
                 </Accordion.Body>
               </Accordion.Item>
 
-              <Accordion.Item eventKey="1">
+              <Accordion.Item eventKey="2">
                 <Accordion.Header>
                   <i className="fas fa-lightbulb me-2"></i>
                   Improvement Suggestions
@@ -456,7 +423,7 @@ const DocumentUpload = ({ onClaimDataUpdate, onValidationUpdate }) => {
                 </Accordion.Body>
               </Accordion.Item>
 
-              <Accordion.Item eventKey="2">
+              <Accordion.Item eventKey="3">
                 <Accordion.Header>
                   <i className="fas fa-extract me-2"></i>
                   Extracted Data
@@ -477,7 +444,7 @@ const DocumentUpload = ({ onClaimDataUpdate, onValidationUpdate }) => {
                 </Accordion.Body>
               </Accordion.Item>
 
-              <Accordion.Item eventKey="3">
+              <Accordion.Item eventKey="4">
                 <Accordion.Header>
                   <i className="fas fa-file-alt me-2"></i>
                   Extracted Text Preview

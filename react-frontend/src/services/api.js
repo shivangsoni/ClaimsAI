@@ -4,7 +4,7 @@ const API_BASE_URL = 'http://localhost:5000/api';
 
 const api = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 30000, // 30 seconds for file uploads
+  timeout: 90000, // 90 seconds for file uploads and AI processing
 });
 
 export const claimsAPI = {
@@ -18,6 +18,7 @@ export const claimsAPI = {
       headers: {
         'Content-Type': 'multipart/form-data',
       },
+      timeout: 120000, // 2 minutes for document upload and AI processing
     });
     return response.data;
   },
@@ -27,6 +28,8 @@ export const claimsAPI = {
     const response = await api.post('/claims/analyze-text', {
       text,
       claim_type: claimType,
+    }, {
+      timeout: 120000, // 2 minutes for AI text analysis
     });
     return response.data;
   },
