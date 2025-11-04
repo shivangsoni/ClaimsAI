@@ -8,7 +8,19 @@ import { ArrowLeft, Search, FileText, CheckCircle2, Clock, XCircle, DollarSign, 
 import { claimsAPI } from '../services/api';
 import { useToast } from '../hooks/use-toast';
 
-function StatusBadge({ status }) {
+function StatusBadge({ status, recommendation }) {
+  // Determine the display status - prioritize AI recommendation if available
+  let displayStatus = status;
+  if (recommendation) {
+    if (recommendation === 'APPROVED') {
+      displayStatus = 'approved';
+    } else if (recommendation === 'DENIED') {
+      displayStatus = 'rejected';
+    }
+  } else if (status === 'submitted') {
+    displayStatus = 'pending';
+  }
+
   const styles = {
     approved: "bg-green-500 text-white",
     pending: "bg-yellow-500 text-white",
@@ -19,7 +31,7 @@ function StatusBadge({ status }) {
 
   const labels = {
     approved: "Approved",
-    pending: "Pending",
+    pending: "Pending Review",
     "under-review": "Under Review",
     rejected: "Rejected",
     submitted: "Submitted",
@@ -27,10 +39,10 @@ function StatusBadge({ status }) {
 
   return (
     <span
-      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${styles[status]}`}
+      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${styles[displayStatus]}`}
     >
-      {status === "approved" && <CheckCircle2 className="h-3 w-3" />}
-      {labels[status]}
+      {displayStatus === "approved" && <CheckCircle2 className="h-3 w-3" />}
+      {labels[displayStatus]}
     </span>
   );
 }
@@ -107,6 +119,7 @@ export default function ClaimsDashboard() {
     return () => window.removeEventListener('focus', handleFocus);
   }, [loadClaimsData, loadStatsData]);
 
+  // Filter and sort claims - backend now handles filtering, so this is just for local display
   const filteredClaims = claims;
 
   return (
@@ -249,7 +262,7 @@ export default function ClaimsDashboard() {
                     <div className="flex-1">
                       <div className="flex items-center gap-3 mb-2">
                         <h3 className="text-xl font-semibold text-foreground">{claim.patient_name}</h3>
-                        <StatusBadge status={claim.status} />
+                        <StatusBadge status={claim.status} recommendation={claim.recommendation} />
                         {claim.is_valid === false && (
                           <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800">
                             <AlertCircle className="h-3 w-3" />

@@ -18,19 +18,33 @@ import {
 import { claimsAPI } from '../services/api';
 import { useToast } from '../hooks/use-toast';
 
-function StatusBadge({ status }) {
+function StatusBadge({ status, recommendation }) {
+  // Determine the display status - prioritize AI recommendation if available
+  let displayStatus = status;
+  if (recommendation) {
+    if (recommendation === 'APPROVED') {
+      displayStatus = 'approved';
+    } else if (recommendation === 'DENIED') {
+      displayStatus = 'rejected';
+    }
+  } else if (status === 'submitted') {
+    displayStatus = 'pending';
+  }
+
   const styles = {
     approved: "bg-green-500 text-white",
     pending: "bg-yellow-500 text-white",
     "under-review": "bg-blue-500 text-white",
     rejected: "bg-red-500 text-white",
+    submitted: "bg-blue-400 text-white",
   };
 
   const labels = {
     approved: "Approved",
-    pending: "Pending",
+    pending: "Pending Review",
     "under-review": "Under Review",
     rejected: "Rejected",
+    submitted: "Submitted",
   };
 
   const icons = {
@@ -39,10 +53,10 @@ function StatusBadge({ status }) {
 
   return (
     <span
-      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium ${styles[status]}`}
+      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium ${styles[displayStatus]}`}
     >
-      {status === "approved" && icons.approved}
-      {labels[status]}
+      {displayStatus === "approved" && icons.approved}
+      {labels[displayStatus]}
     </span>
   );
 }
@@ -96,6 +110,35 @@ export default function ClaimDetailPage() {
     setOpenSections((prev) => ({ ...prev, [section]: !prev[section] }));
   };
 
+  const handleDownload = async (documentId, filename) => {
+    try {
+      const response = await claimsAPI.downloadDocument(documentId);
+      
+      // Create blob URL and trigger download
+      const blob = new Blob([response.data]);
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+      
+      toast({
+        title: "Success",
+        description: `${filename} downloaded successfully`,
+      });
+    } catch (error) {
+      console.error('Download error:', error);
+      toast({
+        title: "Error",
+        description: "Failed to download document. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
@@ -133,7 +176,10 @@ export default function ClaimDetailPage() {
           <CardContent className="p-6">
             <div className="flex items-center gap-3">
               <h1 className="text-3xl font-bold text-foreground">{claimData.claim.patient_name}</h1>
-              <StatusBadge status={claimData.claim.status} />
+              <StatusBadge 
+                status={claimData.claim.status} 
+                recommendation={claimData.recommendations && claimData.recommendations.length > 0 ? claimData.recommendations[0].recommendation : null}
+              />
             </div>
             <p className="text-muted-foreground mt-2">
               Claim ID: {claimData.claim.claim_id} • Patient ID: {claimData.claim.patient_id}
@@ -427,7 +473,11 @@ export default function ClaimDetailPage() {
                             </p>
                           </div>
                         </div>
-                        <Button variant="outline" size="sm">
+                        <Button 
+                          variant="outline" 
+                          size="sm"
+                          onClick={() => handleDownload(doc.id, doc.original_filename)}
+                        >
                           <Download className="h-4 w-4 mr-2" />
                           Download
                         </Button>

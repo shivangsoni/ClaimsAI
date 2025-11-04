@@ -123,8 +123,20 @@ def get_all_claims():
             params = []
             
             if status_filter:
-                where_conditions.append("c.status = ?")
-                params.append(status_filter)
+                # Handle filtering by both database status and AI recommendation
+                if status_filter.lower() == 'approved':
+                    where_conditions.append("(c.status = ? OR r.recommendation IN ('APPROVED', 'APPROVE'))")
+                    params.append('approved')
+                elif status_filter.lower() == 'rejected':
+                    where_conditions.append("(c.status = ? OR r.recommendation IN ('DENIED', 'DENY'))")
+                    params.append('rejected')
+                elif status_filter.lower() == 'pending':
+                    where_conditions.append("(r.recommendation IS NULL OR r.recommendation = 'REVIEW')")
+                elif status_filter.lower() == 'under-review':
+                    where_conditions.append("(c.status = 'under-review' OR r.recommendation = 'REVIEW')")
+                else:
+                    where_conditions.append("c.status = ?")
+                    params.append(status_filter)
             
             if search_query:
                 where_conditions.append("""
@@ -148,8 +160,12 @@ def get_all_claims():
             cursor.execute(base_query, params)
             claims = [dict(row) for row in cursor.fetchall()]
             
-            # Get total count for pagination
-            count_query = "SELECT COUNT(*) FROM claims c"
+            # Get total count for pagination (need same JOINs as main query)
+            count_query = """
+                SELECT COUNT(*) FROM claims c
+                LEFT JOIN validation_results v ON c.claim_id = v.claim_id
+                LEFT JOIN recommendations r ON c.claim_id = r.claim_id
+            """
             if where_conditions:
                 count_query += " WHERE " + " AND ".join(where_conditions)
             
@@ -202,11 +218,22 @@ def get_claims_stats():
             cursor.execute("SELECT COUNT(*) as total FROM claims")
             total_claims = cursor.fetchone()[0]
             
-            # Claims by status
+            # Claims by status - prioritize AI recommendations over database status
             cursor.execute("""
-                SELECT status, COUNT(*) as count 
-                FROM claims 
-                GROUP BY status
+                SELECT 
+                    CASE 
+                        WHEN r.recommendation = 'APPROVED' OR r.recommendation = 'APPROVE' THEN 'approved'
+                        WHEN r.recommendation = 'DENIED' OR r.recommendation = 'DENY' THEN 'rejected'
+                        WHEN r.recommendation = 'REVIEW' THEN 'under-review'
+                        WHEN c.status = 'approved' THEN 'approved'
+                        WHEN c.status = 'rejected' THEN 'rejected'
+                        WHEN c.status = 'under-review' THEN 'under-review'
+                        ELSE 'pending'
+                    END as effective_status,
+                    COUNT(*) as count
+                FROM claims c
+                LEFT JOIN recommendations r ON c.claim_id = r.claim_id
+                GROUP BY effective_status
             """)
             status_counts = {row[0]: row[1] for row in cursor.fetchall()}
             
@@ -609,4 +636,42 @@ def upload_document_to_existing_claim(claim_id):
     except Exception as e:
         return jsonify({
             'error': f'Document upload failed for claim {claim_id}: {str(e)}'
+        }), 500
+
+@claims_bp.route('/documents/download/<int:document_id>', methods=['GET'])
+def download_document(document_id):
+    """
+    Download a document by its ID
+    """
+    try:
+        db = DatabaseManager()
+        
+        with db.get_connection() as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            
+            # Get document info from database
+            cursor.execute('SELECT * FROM documents WHERE id = ?', (document_id,))
+            document = cursor.fetchone()
+            
+            if not document:
+                return jsonify({'error': 'Document not found'}), 404
+            
+            # Check if file exists on disk
+            file_path = document['file_path']
+            if not os.path.exists(file_path):
+                return jsonify({'error': 'File not found on disk'}), 404
+            
+            # Send file for download
+            from flask import send_file
+            return send_file(
+                file_path,
+                as_attachment=True,
+                download_name=document['original_filename'],
+                mimetype='application/octet-stream'
+            )
+    
+    except Exception as e:
+        return jsonify({
+            'error': f'Download failed: {str(e)}'
         }), 500

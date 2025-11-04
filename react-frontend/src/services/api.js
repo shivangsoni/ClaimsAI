@@ -88,6 +88,14 @@ export const claimsAPI = {
     return response.data;
   },
 
+  // Download document
+  downloadDocument: async (documentId) => {
+    const response = await api.get(`/claims/documents/download/${documentId}`, {
+      responseType: 'blob', // Important for file downloads
+    });
+    return response;
+  },
+
   // Health check
   healthCheck: async () => {
     const response = await api.get('/status');
