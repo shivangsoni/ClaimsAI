@@ -1,0 +1,86 @@
+{
+  "description": "Claims Document Analysis Flow for ClaimsAI",
+  "name": "claims-analysis-flow",
+  "id": "claims-analysis-flow",
+  "data": {
+    "nodes": [
+      {
+        "id": "ChatOpenAI-1",
+        "type": "ChatOpenAI",
+        "position": { "x": 300, "y": 200 },
+        "data": {
+          "node": {
+            "template": {
+              "model": {
+                "value": "gpt-4o-mini",
+                "type": "str"
+              },
+              "temperature": {
+                "value": 0.1,
+                "type": "float"
+              },
+              "max_tokens": {
+                "value": 2000,
+                "type": "int"
+              },
+              "api_key": {
+                "value": "",
+                "type": "str",
+                "password": true
+              }
+            },
+            "description": "OpenAI Chat Model for Claims Analysis"
+          }
+        }
+      },
+      {
+        "id": "PromptTemplate-1",
+        "type": "PromptTemplate",
+        "position": { "x": 100, "y": 200 },
+        "data": {
+          "node": {
+            "template": {
+              "template": {
+                "value": "You are a senior medical claims adjuster with 10+ years of experience. Analyze this insurance claim document and make a coverage decision with detailed reasoning.\n\nDOCUMENT TO ANALYZE:\n{document_text}\n\nCLAIM TYPE: {claim_type}\n\nREFERENCE STANDARDS:\n{reference_document}\n\nReturn JSON with these exact fields:\n- overall_status: \"APPROVED\", \"DENIED\", or \"NEEDS_REVIEW\"\n- decision_reasoning: Detailed explanation (4-6 sentences) of your decision\n- key_factors: Array of 3-5 specific factors that influenced your decision\n- completeness_score: 0-100 (percentage of required information present)\n- missing_sections: Array of missing required sections/information\n- found_sections: Array of sections/information that were found and complete\n- validation_errors: Array of specific issues found\n- recommendations: Array of specific actionable recommendations\n- extracted_data: Object with all extracted information\n- confidence_level: 0-100 (confidence in this decision)\n- processing_notes: Summary of analysis process\n\nAnalyze this claim thoroughly and provide a fair, industry-standard assessment.",
+                "type": "str"
+              },
+              "input_variables": {
+                "value": ["document_text", "claim_type", "reference_document"],
+                "type": "list"
+              }
+            },
+            "description": "Prompt Template for Claims Analysis"
+          }
+        }
+      },
+      {
+        "id": "JsonOutputParser-1",
+        "type": "JsonOutputParser",
+        "position": { "x": 500, "y": 200 },
+        "data": {
+          "node": {
+            "template": {},
+            "description": "Parse JSON output from LLM"
+          }
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "PromptTemplate-1-ChatOpenAI-1",
+        "source": "PromptTemplate-1",
+        "target": "ChatOpenAI-1",
+        "sourceHandle": "prompt",
+        "targetHandle": "messages"
+      },
+      {
+        "id": "ChatOpenAI-1-JsonOutputParser-1",
+        "source": "ChatOpenAI-1",
+        "target": "JsonOutputParser-1",
+        "sourceHandle": "text",
+        "targetHandle": "text"
+      }
+    ]
+  },
+  "is_component": false
+}

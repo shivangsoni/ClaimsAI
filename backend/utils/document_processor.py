@@ -1,5 +1,7 @@
-import openai
 import os
+import json
+import time
+import uuid
 from typing import Dict, List, Any, Optional
 import base64
 from PIL import Image
@@ -8,23 +10,78 @@ import PyPDF2
 import io
 from dotenv import load_dotenv
 
+# LangFlow and LangChain imports
+import requests
+from langchain_openai import ChatOpenAI
+from langchain_core.prompts import PromptTemplate
+from langchain_core.output_parsers import JsonOutputParser
+from langchain_core.runnables import RunnablePassthrough
+
+# Opik telemetry imports
+try:
+    import opik
+    from opik import track, Opik
+    OPIK_AVAILABLE = True
+except ImportError:
+    OPIK_AVAILABLE = False
+    print("Opik not available. Install with: pip install opik")
+
+# Load prompts
+from .prompt import (
+    CLAIMS_ANALYST_SYSTEM_PROMPT,
+    CLAIMS_ANALYSIS_PROMPT_TEMPLATE,
+    IMPROVEMENT_SUGGESTIONS_PROMPT,
+    DOCUMENT_COMPARISON_PROMPT,
+    OCR_NOT_AVAILABLE_MESSAGE,
+    ERROR_RESPONSE_TEMPLATES,
+    LANGFLOW_CONFIG,
+    OPIK_TRACE_CONFIG
+)
+
 # Load environment variables from .env file
 load_dotenv()
 
 class DocumentProcessor:
     """
-    Process claim documents using OpenAI GPT-4 for analysis
+    Process claim documents using LangFlow and OpenAI GPT-4 with Opik telemetry
     """
     
     def __init__(self):
-        # Load OpenAI API key from .env file
-        api_key = os.getenv('openai.api_key') or os.getenv('OPENAI_API_KEY')
-        if not api_key:
+        # Load configuration from environment
+        self.api_key = os.getenv('openai.api_key') or os.getenv('OPENAI_API_KEY')
+        if not self.api_key:
             raise ValueError("OpenAI API key not found. Please set 'openai.api_key' in your .env file")
         
-        self.client = openai.OpenAI(
-            api_key=api_key,
-            timeout=60.0  # Default 60 second timeout for all requests
+        # LangFlow configuration
+        self.langflow_url = os.getenv('LANGFLOW_URL', 'http://localhost:7860')
+        self.langflow_flow_id = os.getenv('LANGFLOW_FLOW_ID', 'claims-analysis-flow')
+        
+        # Initialize Opik client if available
+        if OPIK_AVAILABLE:
+            try:
+                self.opik_client = Opik(project_name=OPIK_TRACE_CONFIG["project_name"])
+            except Exception as e:
+                print(f"Opik initialization failed: {e}")
+                self.opik_client = None
+        else:
+            self.opik_client = None
+        
+        # Initialize LangChain components for fallback
+        self.llm = ChatOpenAI(
+            api_key=self.api_key,
+            model="gpt-4o-mini",
+            temperature=0.1,
+            max_tokens=2000,
+            timeout=60
+        )
+        
+        # Setup JSON output parser
+        self.output_parser = JsonOutputParser()
+        
+        # Create prompt template
+        self.prompt_template = PromptTemplate(
+            template=CLAIMS_ANALYSIS_PROMPT_TEMPLATE,
+            input_variables=["document_text", "claim_type", "reference_document"]
         )
         
         # Reference claim document examples for comparison
@@ -165,23 +222,10 @@ CLINICAL INFORMATION:
         except Exception as e:
             # If Tesseract is not installed, return a helpful message instead of failing
             if "tesseract" in str(e).lower() or "not installed" in str(e).lower():
-                return f"""
-[IMAGE UPLOAD DETECTED - OCR NOT AVAILABLE]
-
-This appears to be an image file that requires OCR (Optical Character Recognition) to extract text.
-
-To enable text extraction from images, please install Tesseract OCR:
-- Windows: Download from https://github.com/UB-Mannheim/tesseract/wiki
-- Add Tesseract to your system PATH
-
-For now, please:
-1. Convert your image to text manually, or
-2. Upload a PDF version of the document, or  
-3. Install Tesseract OCR for automatic text extraction
-
-Image file: {file_path}
-Error: {str(e)}
-"""
+                return OCR_NOT_AVAILABLE_MESSAGE.format(
+                    file_path=file_path,
+                    error_message=str(e)
+                )
             else:
                 raise Exception(f"Image processing failed: {str(e)}")
     
@@ -193,30 +237,25 @@ Error: {str(e)}
         except Exception as e:
             raise Exception(f"Text file reading failed: {str(e)}")
     
+    @track(name="analyze_claim_document") if OPIK_AVAILABLE else lambda func: func
     def analyze_claim_document(self, document_text: str, claim_type: str = "medical_claim") -> Dict[str, Any]:
         """
-        Analyze claim document using GPT-4 against reference documents
+        Analyze claim document using LangFlow with Opik telemetry
         """
+        trace_id = str(uuid.uuid4())
+        start_time = time.time()
+        
         try:
+            # Log to Opik if available
+            if self.opik_client:
+                self._log_opik_start(trace_id, document_text, claim_type)
+            
             # Check if this is an OCR unavailable message
             if "[IMAGE UPLOAD DETECTED - OCR NOT AVAILABLE]" in document_text:
-                return {
-                    "overall_status": "OCR_REQUIRED",
-                    "completeness_score": 0,
-                    "missing_sections": ["Text extraction required"],
-                    "found_sections": [],
-                    "data_quality_issues": [],
-                    "validation_errors": [{"field": "ocr", "error": "Tesseract OCR not available", "expected_format": "Install Tesseract OCR"}],
-                    "recommendations": [
-                        "Install Tesseract OCR to extract text from images",
-                        "Convert image to PDF format",
-                        "Manually type the document content"
-                    ],
-                    "extracted_data": {},
-                    "confidence_level": 0,
-                    "processing_notes": document_text.strip(),
-                    "ocr_required": True
-                }
+                result = ERROR_RESPONSE_TEMPLATES["ocr_required"].copy()
+                result["processing_notes"] = document_text.strip()
+                result["ocr_required"] = True
+                return result
             
             # Truncate very large documents to prevent timeout
             max_length = 4000  # Limit document length
@@ -225,207 +264,371 @@ Error: {str(e)}
             
             reference_doc = self.reference_documents.get(claim_type, self.reference_documents["medical_claim"])
             
-            prompt = f"""
-You are a senior medical claims adjuster with 10+ years of experience. Analyze this insurance claim document and make a coverage decision with detailed reasoning.
-
-DOCUMENT TO ANALYZE:
-{document_text}
-
-Return JSON with these fields:
-- overall_status: "APPROVED", "DENIED", or "NEEDS_REVIEW"
-- decision_reasoning: Detailed explanation (4-6 sentences) of your decision including:
-  * What specific evidence supported your decision
-  * Any red flags or positive indicators found
-  * Compliance with standard insurance practices
-  * Risk assessment considerations
-- key_factors: Array of 3-5 specific factors that most influenced your decision
-- completeness_score: 0-100 (percentage of required information present)
-- missing_sections: Array of missing required sections/information
-- found_sections: Array of sections/information that were found and complete
-- validation_errors: Array of specific issues found (field, error description, expected format)
-- recommendations: Array of specific actionable recommendations
-- extracted_data: Object with all extracted information:
-  * patient_name, patient_id, policy_number, service_date
-  * provider_name, diagnosis_code, procedure_code  
-  * billed_amount, service_type, etc.
-- confidence_level: 0-100 (how confident you are in this decision)
-- processing_notes: Summary of your analysis process and key observations
-
-DECISION CRITERIA FOR CLAIMS ADJUDICATION:
-
-APPROVED - Recommend for payment when:
-✓ All required patient and provider information is complete and verified
-✓ Policy is active and covers the claimed services  
-✓ Diagnosis codes align with procedures performed
-✓ Charges are within reasonable and customary limits
-✓ Proper authorization obtained for specialized services
-✓ No fraud indicators detected
-
-DENIED - Reject payment when:
-✗ Missing critical information (patient ID, policy number, dates)
-✗ Policy expired, suspended, or doesn't cover claimed services
-✗ Fraudulent indicators (duplicate claims, suspicious patterns)
-✗ Services not medically necessary or experimental
-✗ Billing errors or inflated charges
-✗ Prior authorization missing for required procedures
-
-NEEDS_REVIEW - Flag for manual review when:
-⚠ Unusual circumstances requiring medical director review
-⚠ High-cost claims near policy limits  
-⚠ Incomplete but potentially valid information
-⚠ Complex cases requiring additional documentation
-⚠ First-time providers or unusual billing patterns
-
-Analyze this claim as if making a real coverage decision that affects both patient care and company liability. Be thorough, fair, and follow industry best practices.
-"""
-
-            response = self.client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[
-                    {
-                        "role": "system", 
-                        "content": "You are an expert medical claims analyst with years of experience reviewing insurance claims for completeness and accuracy."
-                    },
-                    {
-                        "role": "user", 
-                        "content": prompt
-                    }
-                ],
-                temperature=0.1,
-                max_tokens=2000,
-                timeout=60  # Set 60 second timeout
-            )
+            # Try LangFlow first, fallback to direct LangChain
+            result = self._analyze_with_langflow(document_text, claim_type, reference_doc, trace_id)
             
-            # Parse the JSON response
-            import json
-            try:
-                content = response.choices[0].message.content
-                
-                # Handle markdown code blocks (remove ```json and ```)
-                if content.strip().startswith('```json'):
-                    content = content.strip()[7:]  # Remove ```json
-                if content.strip().endswith('```'):
-                    content = content.strip()[:-3]  # Remove ```
-                elif content.strip().startswith('```'):
-                    # Handle just ``` without json
-                    content = content.strip()[3:]
-                    if content.endswith('```'):
-                        content = content[:-3]
-                
-                content = content.strip()
-                analysis_result = json.loads(content)
-                analysis_result["raw_gpt_response"] = response.choices[0].message.content
-                return analysis_result
-            except json.JSONDecodeError:
-                # If JSON parsing fails, return structured response
-                return {
-                    "overall_status": "ERROR",
-                    "completeness_score": 0,
-                    "missing_sections": ["Analysis parsing failed"],
-                    "found_sections": [],
-                    "data_quality_issues": [],
-                    "validation_errors": [{"field": "document", "error": "GPT-4 response parsing failed", "expected_format": "JSON"}],
-                    "recommendations": ["Please resubmit the document"],
-                    "extracted_data": {},
-                    "confidence_level": 0,
-                    "processing_notes": f"GPT-4 raw response: {response.choices[0].message.content}",
-                    "raw_gpt_response": response.choices[0].message.content
-                }
+            if not result or result.get("overall_status") == "ERROR":
+                print("LangFlow failed, using fallback LangChain approach...")
+                result = self._analyze_with_langchain(document_text, claim_type, reference_doc, trace_id)
+            
+            # Log completion to Opik
+            if self.opik_client:
+                self._log_opik_completion(trace_id, result, time.time() - start_time)
+            
+            return result
                 
         except Exception as e:
             error_msg = str(e).lower()
             if "timeout" in error_msg or "timed out" in error_msg:
-                return {
-                    "overall_status": "TIMEOUT",
-                    "completeness_score": 0,
-                    "missing_sections": ["Analysis timed out"],
-                    "found_sections": [],
-                    "data_quality_issues": [],
-                    "validation_errors": [{"field": "processing", "error": "Analysis timeout - document too large or complex", "expected_format": "smaller_document"}],
-                    "recommendations": [
-                        "Try with a smaller document",
-                        "Break large documents into sections",
-                        "Ensure document is properly formatted"
-                    ],
-                    "extracted_data": {},
-                    "confidence_level": 0,
-                    "processing_notes": f"Analysis timed out after 60 seconds. Document may be too large or complex for processing."
-                }
+                result = ERROR_RESPONSE_TEMPLATES["timeout"].copy()
             else:
-                return {
-                    "overall_status": "ERROR",
-                    "completeness_score": 0,
-                    "missing_sections": ["Analysis failed"],
-                    "found_sections": [],
-                    "data_quality_issues": [],
-                    "validation_errors": [{"field": "system", "error": str(e), "expected_format": "valid_document"}],
-                    "recommendations": ["Please check the document and try again"],
-                    "extracted_data": {},
-                    "confidence_level": 0,
-                    "processing_notes": f"System error: {str(e)}"
-                }
+                result = ERROR_RESPONSE_TEMPLATES["system_error"].copy()
+                result["validation_errors"][0]["error"] = str(e)
+                result["processing_notes"] = f"System error: {str(e)}"
+            
+            # Log error to Opik
+            if self.opik_client:
+                self._log_opik_error(trace_id, str(e), time.time() - start_time)
+            
+            return result
     
+    def _analyze_with_langflow(self, document_text: str, claim_type: str, reference_doc: str, trace_id: str) -> Dict[str, Any]:
+        """
+        Analyze document using LangFlow API
+        """
+        try:
+            # LangFlow API endpoint
+            url = f"{self.langflow_url}/api/v1/run/{self.langflow_flow_id}"
+            
+            # Prepare the payload
+            payload = {
+                "input_value": document_text,
+                "input_type": "chat",
+                "output_type": "chat",
+                "tweaks": {
+                    "ChatOpenAI-1": {
+                        "model": "gpt-4o-mini",
+                        "temperature": 0.1,
+                        "max_tokens": 2000,
+                        "api_key": self.api_key
+                    },
+                    "PromptTemplate-1": {
+                        "template": CLAIMS_ANALYSIS_PROMPT_TEMPLATE,
+                        "document_text": document_text,
+                        "claim_type": claim_type,
+                        "reference_document": reference_doc
+                    }
+                }
+            }
+            
+            headers = {
+                "Content-Type": "application/json",
+                "x-trace-id": trace_id
+            }
+            
+            # Make the API call
+            response = requests.post(url, json=payload, headers=headers, timeout=60)
+            
+            if response.status_code == 200:
+                langflow_result = response.json()
+                
+                # Extract the result from LangFlow response
+                if "outputs" in langflow_result:
+                    output_text = langflow_result["outputs"][0]["outputs"][0]["results"]["message"]["text"]
+                    return self._parse_analysis_result(output_text)
+                else:
+                    raise Exception("Invalid LangFlow response format")
+            else:
+                raise Exception(f"LangFlow API error: {response.status_code} - {response.text}")
+                
+        except Exception as e:
+            print(f"LangFlow analysis failed: {e}")
+            return None
+    
+    def _analyze_with_langchain(self, document_text: str, claim_type: str, reference_doc: str, trace_id: str) -> Dict[str, Any]:
+        """
+        Fallback analysis using direct LangChain
+        """
+        try:
+            # Create the analysis chain
+            chain = (
+                {
+                    "document_text": RunnablePassthrough(),
+                    "claim_type": lambda x: claim_type,
+                    "reference_document": lambda x: reference_doc
+                }
+                | self.prompt_template
+                | self.llm
+                | self.output_parser
+            )
+            
+            # Run the chain
+            result = chain.invoke(document_text)
+            
+            # Ensure result is a dictionary
+            if isinstance(result, str):
+                result = self._parse_analysis_result(result)
+            
+            result["processing_method"] = "langchain_fallback"
+            result["trace_id"] = trace_id
+            
+            return result
+            
+        except Exception as e:
+            print(f"LangChain fallback failed: {e}")
+            result = ERROR_RESPONSE_TEMPLATES["system_error"].copy()
+            result["validation_errors"][0]["error"] = f"LangChain error: {str(e)}"
+            result["processing_notes"] = f"Both LangFlow and LangChain failed: {str(e)}"
+            return result
+    
+    def _parse_analysis_result(self, content: str) -> Dict[str, Any]:
+        """
+        Parse and clean the analysis result from LLM response
+        """
+        try:
+            # Handle markdown code blocks (remove ```json and ```)
+            if content.strip().startswith('```json'):
+                content = content.strip()[7:]  # Remove ```json
+            if content.strip().endswith('```'):
+                content = content.strip()[:-3]  # Remove ```
+            elif content.strip().startswith('```'):
+                # Handle just ``` without json
+                content = content.strip()[3:]
+                if content.endswith('```'):
+                    content = content[:-3]
+            
+            content = content.strip()
+            analysis_result = json.loads(content)
+            analysis_result["raw_llm_response"] = content
+            return analysis_result
+            
+        except json.JSONDecodeError as e:
+            # If JSON parsing fails, return structured error response
+            result = ERROR_RESPONSE_TEMPLATES["system_error"].copy()
+            result["validation_errors"][0]["error"] = f"JSON parsing failed: {str(e)}"
+            result["processing_notes"] = f"Raw LLM response: {content[:500]}..."
+            result["raw_llm_response"] = content
+            return result
+    
+    def _log_opik_start(self, trace_id: str, document_text: str, claim_type: str):
+        """Log analysis start to Opik"""
+        try:
+            self.opik_client.log_traces([{
+                "id": trace_id,
+                "name": OPIK_TRACE_CONFIG["trace_name"],
+                "input": {
+                    "document_length": len(document_text),
+                    "claim_type": claim_type,
+                    "document_preview": document_text[:200] + "..." if len(document_text) > 200 else document_text
+                },
+                "tags": OPIK_TRACE_CONFIG["tags"],
+                "start_time": time.time()
+            }])
+        except Exception as e:
+            print(f"Opik logging failed: {e}")
+    
+    def _log_opik_completion(self, trace_id: str, result: Dict[str, Any], duration: float):
+        """Log successful completion to Opik"""
+        try:
+            self.opik_client.log_traces([{
+                "id": trace_id,
+                "output": {
+                    "overall_status": result.get("overall_status"),
+                    "confidence_level": result.get("confidence_level"),
+                    "completeness_score": result.get("completeness_score")
+                },
+                "end_time": time.time(),
+                "duration": duration,
+                "feedback_scores": [
+                    {"name": "confidence", "value": result.get("confidence_level", 0) / 100.0},
+                    {"name": "completeness", "value": result.get("completeness_score", 0) / 100.0}
+                ]
+            }])
+        except Exception as e:
+            print(f"Opik completion logging failed: {e}")
+    
+    def _log_opik_error(self, trace_id: str, error_message: str, duration: float):
+        """Log error to Opik"""
+        try:
+            self.opik_client.log_traces([{
+                "id": trace_id,
+                "end_time": time.time(),
+                "duration": duration,
+                "metadata": {"error": error_message, "status": "failed"}
+            }])
+        except Exception as e:
+            print(f"Opik error logging failed: {e}")
+    
+    @track(name="get_improvement_suggestions") if OPIK_AVAILABLE else lambda func: func
     def get_improvement_suggestions(self, analysis_result: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Generate detailed improvement suggestions based on analysis
+        Generate detailed improvement suggestions based on analysis using LangFlow/LangChain
         """
-        suggestions = {
-            "priority_fixes": [],
-            "optional_improvements": [],
-            "template_recommendations": []
-        }
-        
-        # High priority fixes
-        for error in analysis_result.get("validation_errors", []):
-            suggestions["priority_fixes"].append({
-                "type": "validation_error",
-                "description": f"Fix {error.get('field', 'unknown field')}: {error.get('error', 'unknown error')}",
-                "expected": error.get('expected_format', 'correct format')
-            })
-        
-        for section in analysis_result.get("missing_sections", []):
-            suggestions["priority_fixes"].append({
-                "type": "missing_section",
-                "description": f"Add missing section: {section}",
-                "expected": "Complete section with all required fields"
-            })
-        
-        # Medium priority improvements
-        for issue in analysis_result.get("data_quality_issues", []):
-            if issue.get("severity") in ["HIGH", "MEDIUM"]:
-                suggestions["optional_improvements"].append({
-                    "section": issue.get("section", "unknown"),
-                    "improvement": issue.get("issue", "unknown issue"),
-                    "severity": issue.get("severity", "MEDIUM")
+        try:
+            suggestions = {
+                "priority_fixes": [],
+                "optional_improvements": [],
+                "template_recommendations": []
+            }
+            
+            # High priority fixes
+            for error in analysis_result.get("validation_errors", []):
+                suggestions["priority_fixes"].append({
+                    "type": "validation_error",
+                    "description": f"Fix {error.get('field', 'unknown field')}: {error.get('error', 'unknown error')}",
+                    "expected": error.get('expected_format', 'correct format')
                 })
-        
-        # Template recommendations
-        if analysis_result.get("completeness_score", 0) < 70:
-            suggestions["template_recommendations"].append(
-                "Consider using a standardized claim form template to ensure all required sections are included."
+            
+            for section in analysis_result.get("missing_sections", []):
+                suggestions["priority_fixes"].append({
+                    "type": "missing_section",
+                    "description": f"Add missing section: {section}",
+                    "expected": "Complete section with all required fields"
+                })
+            
+            # Medium priority improvements
+            for issue in analysis_result.get("data_quality_issues", []):
+                if issue.get("severity") in ["HIGH", "MEDIUM"]:
+                    suggestions["optional_improvements"].append({
+                        "section": issue.get("section", "unknown"),
+                        "improvement": issue.get("issue", "unknown issue"),
+                        "severity": issue.get("severity", "MEDIUM")
+                    })
+            
+            # Template recommendations
+            if analysis_result.get("completeness_score", 0) < 70:
+                suggestions["template_recommendations"].append(
+                    "Consider using a standardized claim form template to ensure all required sections are included."
+                )
+            
+            # Generate AI-powered suggestions if possible
+            if self.llm and analysis_result.get("overall_status") != "ERROR":
+                try:
+                    ai_suggestions = self._generate_ai_suggestions(analysis_result)
+                    if ai_suggestions:
+                        suggestions["ai_powered_suggestions"] = ai_suggestions
+                except Exception as e:
+                    print(f"AI suggestion generation failed: {e}")
+            
+            return suggestions
+            
+        except Exception as e:
+            print(f"Error generating improvement suggestions: {e}")
+            return {
+                "priority_fixes": [],
+                "optional_improvements": [],
+                "template_recommendations": [],
+                "error": f"Failed to generate suggestions: {str(e)}"
+            }
+    
+    def _generate_ai_suggestions(self, analysis_result: Dict[str, Any]) -> List[str]:
+        """Generate AI-powered improvement suggestions"""
+        try:
+            suggestion_prompt = PromptTemplate(
+                template=IMPROVEMENT_SUGGESTIONS_PROMPT,
+                input_variables=["analysis_results"]
             )
-        
-        return suggestions
+            
+            chain = suggestion_prompt | self.llm | JsonOutputParser()
+            ai_suggestions = chain.invoke({"analysis_results": json.dumps(analysis_result, indent=2)})
+            
+            return ai_suggestions.get("suggestions", [])
+            
+        except Exception as e:
+            print(f"AI suggestion generation error: {e}")
+            return []
 
+    @track(name="compare_with_approved_claims") if OPIK_AVAILABLE else lambda func: func
     def compare_with_approved_claims(self, document_text: str) -> Dict[str, Any]:
         """
-        Compare document with multiple approved claim examples
+        Compare document with multiple approved claim examples using LangFlow/LangChain
         """
-        comparison_results = {}
-        
-        for claim_type, reference in self.reference_documents.items():
-            result = self.analyze_claim_document(document_text, claim_type)
-            comparison_results[claim_type] = {
-                "match_score": result.get("completeness_score", 0),
-                "recommended": result.get("completeness_score", 0) > 70
+        try:
+            comparison_results = {}
+            
+            for claim_type, reference in self.reference_documents.items():
+                result = self.analyze_claim_document(document_text, claim_type)
+                comparison_results[claim_type] = {
+                    "match_score": result.get("completeness_score", 0),
+                    "recommended": result.get("completeness_score", 0) > 70,
+                    "status": result.get("overall_status", "UNKNOWN")
+                }
+            
+            # Find best matching claim type
+            best_match = max(comparison_results.items(), key=lambda x: x[1]["match_score"])
+            
+            # Generate detailed comparison using AI if available
+            detailed_comparison = None
+            if self.llm:
+                try:
+                    detailed_comparison = self._generate_detailed_comparison(document_text, comparison_results)
+                except Exception as e:
+                    print(f"Detailed comparison generation failed: {e}")
+            
+            result = {
+                "best_match_type": best_match[0],
+                "best_match_score": best_match[1]["match_score"],
+                "all_comparisons": comparison_results,
+                "detailed_analysis": self.analyze_claim_document(document_text, best_match[0])
             }
-        
-        # Find best matching claim type
-        best_match = max(comparison_results.items(), key=lambda x: x[1]["match_score"])
-        
+            
+            if detailed_comparison:
+                result["ai_detailed_comparison"] = detailed_comparison
+                
+            return result
+            
+        except Exception as e:
+            print(f"Error in claim comparison: {e}")
+            return {
+                "best_match_type": "unknown",
+                "best_match_score": 0,
+                "all_comparisons": {},
+                "detailed_analysis": ERROR_RESPONSE_TEMPLATES["system_error"],
+                "error": f"Comparison failed: {str(e)}"
+            }
+    
+    def _generate_detailed_comparison(self, document_text: str, comparison_results: Dict[str, Any]) -> Dict[str, Any]:
+        """Generate detailed AI-powered comparison analysis"""
+        try:
+            comparison_prompt = PromptTemplate(
+                template=DOCUMENT_COMPARISON_PROMPT,
+                input_variables=["document_text", "reference_claims"]
+            )
+            
+            reference_claims_str = json.dumps(self.reference_documents, indent=2)
+            
+            chain = comparison_prompt | self.llm | JsonOutputParser()
+            comparison_analysis = chain.invoke({
+                "document_text": document_text,
+                "reference_claims": reference_claims_str
+            })
+            
+            return comparison_analysis
+            
+        except Exception as e:
+            print(f"Detailed comparison error: {e}")
+            return {"error": f"Failed to generate detailed comparison: {str(e)}"}
+    
+    def get_langflow_health(self) -> Dict[str, Any]:
+        """Check LangFlow service health"""
+        try:
+            response = requests.get(f"{self.langflow_url}/health", timeout=5)
+            return {
+                "status": "healthy" if response.status_code == 200 else "unhealthy",
+                "url": self.langflow_url,
+                "response_code": response.status_code
+            }
+        except Exception as e:
+            return {
+                "status": "unreachable",
+                "url": self.langflow_url,
+                "error": str(e)
+            }
+    
+    def get_opik_status(self) -> Dict[str, Any]:
+        """Get Opik telemetry status"""
         return {
-            "best_match_type": best_match[0],
-            "best_match_score": best_match[1]["match_score"],
-            "all_comparisons": comparison_results,
-            "detailed_analysis": self.analyze_claim_document(document_text, best_match[0])
+            "available": OPIK_AVAILABLE,
+            "client_initialized": self.opik_client is not None,
+            "project_name": OPIK_TRACE_CONFIG["project_name"] if OPIK_AVAILABLE else None
         }

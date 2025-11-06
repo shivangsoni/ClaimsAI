@@ -37,9 +37,50 @@ def api_status():
         'available_endpoints': [
             '/api/claims/validate',
             '/api/eligibility/check',
-            '/api/recommendations/generate'
+            '/api/recommendations/generate',
+            '/api/integration/status'
         ]
     }), 200
+
+@app.route('/api/integration/status', methods=['GET'])
+def integration_status():
+    """Check LangFlow and Opik integration status"""
+    try:
+        from utils.document_processor import DocumentProcessor
+        
+        processor = DocumentProcessor()
+        
+        # Check LangFlow health
+        langflow_health = processor.get_langflow_health()
+        
+        # Check Opik status
+        opik_status = processor.get_opik_status()
+        
+        return jsonify({
+            'langflow': {
+                'status': langflow_health['status'],
+                'url': langflow_health['url'],
+                'available': langflow_health['status'] in ['healthy', 'reachable']
+            },
+            'opik': {
+                'available': opik_status['available'],
+                'client_initialized': opik_status['client_initialized'],
+                'project_name': opik_status.get('project_name')
+            },
+            'processing': {
+                'method': 'langflow_with_langchain_fallback',
+                'ai_model': 'gpt-4o-mini',
+                'telemetry_enabled': opik_status['available'] and opik_status['client_initialized']
+            }
+        }), 200
+        
+    except Exception as e:
+        return jsonify({
+            'error': str(e),
+            'langflow': {'status': 'unknown'},
+            'opik': {'available': False},
+            'processing': {'method': 'error'}
+        }), 500
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)
