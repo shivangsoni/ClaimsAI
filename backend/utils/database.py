@@ -21,23 +21,82 @@ class DatabaseManager:
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             
-            # Create claims table
+            # Create claims table with CMS-1500 form fields
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS claims (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     claim_id TEXT UNIQUE NOT NULL,
-                    patient_id TEXT NOT NULL,
+                    -- Field 1: Insurance Type
+                    insurance_type TEXT,
+                    -- Field 2: Patient's Name (Last, First, Middle Initial)
                     patient_name TEXT NOT NULL,
+                    patient_id TEXT NOT NULL,
+                    -- Field 3: Patient's Birth Date and Sex
                     date_of_birth DATE NOT NULL,
+                    patient_sex TEXT,
+                    -- Field 4: Insured's Name
+                    insured_name TEXT,
+                    -- Field 5: Patient's Address
+                    patient_address TEXT,
+                    patient_city TEXT,
+                    patient_state TEXT,
+                    patient_zip TEXT,
+                    -- Field 6: Patient Relationship to Insured
+                    patient_relationship TEXT,
+                    -- Field 7: Insured's Address
+                    insured_address TEXT,
+                    insured_city TEXT,
+                    insured_state TEXT,
+                    insured_zip TEXT,
+                    -- Field 9: Patient's SSN
+                    patient_ssn TEXT,
+                    -- Field 11: Insured's Policy Group or FECA Number
                     policy_number TEXT NOT NULL,
-                    provider_name TEXT NOT NULL,
-                    provider_id TEXT NOT NULL,
+                    policy_group_number TEXT,
+                    -- Field 14: Date of Current Illness/Injury/Pregnancy
+                    illness_injury_date DATE,
+                    -- Field 17: Referring Provider's Name and NPI
+                    referring_provider_name TEXT,
+                    referring_provider_npi TEXT,
+                    -- Field 21: Diagnosis Codes (up to 4)
+                    diagnosis_code TEXT NOT NULL,
+                    diagnosis_code_2 TEXT,
+                    diagnosis_code_3 TEXT,
+                    diagnosis_code_4 TEXT,
+                    -- Field 24A-H: Service line items (stored as JSON for multiple services)
+                    service_lines TEXT, -- JSON string for multiple service dates, procedures, etc.
+                    -- Common service fields (for backward compatibility)
                     service_date DATE NOT NULL,
                     service_type TEXT,
-                    diagnosis_code TEXT NOT NULL,
                     procedure_code TEXT NOT NULL,
+                    procedure_code_2 TEXT,
+                    procedure_modifier TEXT,
+                    procedure_modifier_2 TEXT,
+                    procedure_modifier_3 TEXT,
+                    procedure_modifier_4 TEXT,
+                    -- Field 24F: Diagnosis Pointer
+                    diagnosis_pointer TEXT,
+                    -- Field 24G: Days or Units
+                    days_units TEXT,
+                    -- Field 24J: Rendering Provider NPI
+                    rendering_provider_npi TEXT,
+                    -- Field 28: Total Charge
                     amount_billed DECIMAL(10,2) NOT NULL,
+                    -- Field 31: Signature of Physician or Supplier
+                    physician_signature TEXT,
+                    physician_signature_date DATE,
+                    -- Field 33: Billing Provider Information
+                    provider_name TEXT NOT NULL,
+                    provider_id TEXT NOT NULL,
+                    provider_npi TEXT,
+                    provider_address TEXT,
+                    provider_city TEXT,
+                    provider_state TEXT,
+                    provider_zip TEXT,
+                    provider_tax_id TEXT,
+                    -- Additional fields
                     status TEXT DEFAULT 'submitted',
+                    notes TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
@@ -192,30 +251,78 @@ class DatabaseManager:
     
     def save_claim(self, claim_data):
         """
-        Save claim to database
+        Save claim to database with CMS-1500 form fields
         """
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             
             cursor.execute('''
                 INSERT INTO claims 
-                (claim_id, patient_id, patient_name, date_of_birth, policy_number,
-                 provider_name, provider_id, service_date, service_type, 
-                 diagnosis_code, procedure_code, amount_billed)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (claim_id, insurance_type, patient_id, patient_name, date_of_birth, patient_sex,
+                 insured_name, patient_address, patient_city, patient_state, patient_zip,
+                 patient_relationship, insured_address, insured_city, insured_state, insured_zip,
+                 patient_ssn, policy_number, policy_group_number, illness_injury_date,
+                 referring_provider_name, referring_provider_npi,
+                 diagnosis_code, diagnosis_code_2, diagnosis_code_3, diagnosis_code_4,
+                 service_lines, service_date, service_type,
+                 procedure_code, procedure_code_2, procedure_modifier, procedure_modifier_2,
+                 procedure_modifier_3, procedure_modifier_4, diagnosis_pointer, days_units,
+                 rendering_provider_npi, amount_billed,
+                 physician_signature, physician_signature_date,
+                 provider_name, provider_id, provider_npi, provider_address, provider_city,
+                 provider_state, provider_zip, provider_tax_id, notes)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 claim_data.get('claim_id'),
+                claim_data.get('insurance_type'),
                 claim_data.get('patient_id'),
                 claim_data.get('patient_name'),
                 claim_data.get('date_of_birth'),
+                claim_data.get('patient_sex'),
+                claim_data.get('insured_name'),
+                claim_data.get('patient_address'),
+                claim_data.get('patient_city'),
+                claim_data.get('patient_state'),
+                claim_data.get('patient_zip'),
+                claim_data.get('patient_relationship'),
+                claim_data.get('insured_address'),
+                claim_data.get('insured_city'),
+                claim_data.get('insured_state'),
+                claim_data.get('insured_zip'),
+                claim_data.get('patient_ssn'),
                 claim_data.get('policy_number'),
-                claim_data.get('provider_name'),
-                claim_data.get('provider_id'),
+                claim_data.get('policy_group_number'),
+                claim_data.get('illness_injury_date'),
+                claim_data.get('referring_provider_name'),
+                claim_data.get('referring_provider_npi'),
+                claim_data.get('diagnosis_code'),
+                claim_data.get('diagnosis_code_2'),
+                claim_data.get('diagnosis_code_3'),
+                claim_data.get('diagnosis_code_4'),
+                claim_data.get('service_lines'),  # JSON string
                 claim_data.get('service_date'),
                 claim_data.get('service_type'),
-                claim_data.get('diagnosis_code'),
                 claim_data.get('procedure_code'),
-                claim_data.get('amount_billed')
+                claim_data.get('procedure_code_2'),
+                claim_data.get('procedure_modifier'),
+                claim_data.get('procedure_modifier_2'),
+                claim_data.get('procedure_modifier_3'),
+                claim_data.get('procedure_modifier_4'),
+                claim_data.get('diagnosis_pointer'),
+                claim_data.get('days_units'),
+                claim_data.get('rendering_provider_npi'),
+                claim_data.get('amount_billed'),
+                claim_data.get('physician_signature'),
+                claim_data.get('physician_signature_date'),
+                claim_data.get('provider_name'),
+                claim_data.get('provider_id'),
+                claim_data.get('provider_npi'),
+                claim_data.get('provider_address'),
+                claim_data.get('provider_city'),
+                claim_data.get('provider_state'),
+                claim_data.get('provider_zip'),
+                claim_data.get('provider_tax_id'),
+                claim_data.get('notes')
             ))
             
             conn.commit()

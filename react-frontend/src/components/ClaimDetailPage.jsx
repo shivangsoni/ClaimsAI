@@ -201,7 +201,7 @@ export default function ClaimDetailPage() {
               </div>
               <div>
                 <p className="text-xs text-muted-foreground mb-1">Service Type</p>
-                <p className="text-sm font-medium text-foreground">{claimData.claim.service_type}</p>
+                <p className="text-sm font-medium text-foreground">{claimData.claim.service_type || claimData.claim.insurance_type || 'Medical'}</p>
               </div>
             </div>
           </CardContent>
@@ -371,7 +371,7 @@ export default function ClaimDetailPage() {
                   </CollapsibleTrigger>
                   <CollapsibleContent className="pt-4">
                     <div className="bg-primary/5 rounded-lg p-4">
-                      <div className="grid grid-cols-2 gap-6">
+                      <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
                         <div>
                           <p className="text-xs font-semibold text-foreground mb-1">BILLED AMOUNT:</p>
                           <p className="text-sm text-primary font-medium">
@@ -383,10 +383,8 @@ export default function ClaimDetailPage() {
                           <p className="text-sm text-primary font-medium">{claimData.claim.policy_number}</p>
                         </div>
                         <div>
-                          <p className="text-xs font-semibold text-foreground mb-1">SERVICE DATE:</p>
-                          <p className="text-sm text-primary font-medium">
-                            {formatDate(claimData.claim.service_date)}
-                          </p>
+                          <p className="text-xs font-semibold text-foreground mb-1">POLICY GROUP:</p>
+                          <p className="text-sm text-primary font-medium">{claimData.claim.policy_group_number || 'N/A'}</p>
                         </div>
                         <div>
                           <p className="text-xs font-semibold text-foreground mb-1">SERVICE DATE:</p>
@@ -394,7 +392,49 @@ export default function ClaimDetailPage() {
                             {formatDate(claimData.claim.service_date)}
                           </p>
                         </div>
+                        <div>
+                          <p className="text-xs font-semibold text-foreground mb-1">ILLNESS/INJURY DATE:</p>
+                          <p className="text-sm text-primary font-medium">
+                            {formatDate(claimData.claim.illness_injury_date)}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-xs font-semibold text-foreground mb-1">INSURANCE TYPE:</p>
+                          <p className="text-sm text-primary font-medium">{claimData.claim.insurance_type || 'N/A'}</p>
+                        </div>
                       </div>
+                      {claimData.claim.diagnosis_code && (
+                        <div className="mt-4 pt-4 border-t border-border">
+                          <p className="text-xs font-semibold text-foreground mb-2">DIAGNOSIS CODES:</p>
+                          <div className="flex flex-wrap gap-2">
+                            <span className="text-sm text-primary font-medium">{claimData.claim.diagnosis_code}</span>
+                            {claimData.claim.diagnosis_code_2 && <span className="text-sm text-primary font-medium">{claimData.claim.diagnosis_code_2}</span>}
+                            {claimData.claim.diagnosis_code_3 && <span className="text-sm text-primary font-medium">{claimData.claim.diagnosis_code_3}</span>}
+                            {claimData.claim.diagnosis_code_4 && <span className="text-sm text-primary font-medium">{claimData.claim.diagnosis_code_4}</span>}
+                          </div>
+                        </div>
+                      )}
+                      {claimData.claim.procedure_code && (
+                        <div className="mt-4 pt-4 border-t border-border">
+                          <p className="text-xs font-semibold text-foreground mb-2">PROCEDURE CODES:</p>
+                          <div className="flex flex-wrap gap-2">
+                            <span className="text-sm text-primary font-medium">{claimData.claim.procedure_code}</span>
+                            {claimData.claim.procedure_code_2 && <span className="text-sm text-primary font-medium">{claimData.claim.procedure_code_2}</span>}
+                          </div>
+                        </div>
+                      )}
+                      {claimData.claim.service_lines && (
+                        <div className="mt-4 pt-4 border-t border-border">
+                          <p className="text-xs font-semibold text-foreground mb-2">SERVICE LINES:</p>
+                          <div className="space-y-2">
+                            {JSON.parse(claimData.claim.service_lines || '[]').map((line, idx) => (
+                              <div key={idx} className="text-sm text-foreground">
+                                Line {idx + 1}: {line.procedureCode} - {formatDate(line.serviceDate)} - ${parseFloat(line.charges || 0).toFixed(2)}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </CollapsibleContent>
                 </Collapsible>
@@ -409,15 +449,60 @@ export default function ClaimDetailPage() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div>
                     <p className="text-sm text-muted-foreground mb-1">Patient Name</p>
-                    <p className="text-base font-medium text-foreground">{claimData.patientName}</p>
+                    <p className="text-base font-medium text-foreground">{claimData.claim.patient_name}</p>
                   </div>
                   <div>
                     <p className="text-sm text-muted-foreground mb-1">Date of Birth</p>
-                    <p className="text-base font-medium text-foreground">{claimData.dob}</p>
+                    <p className="text-base font-medium text-foreground">{formatDate(claimData.claim.date_of_birth)}</p>
                   </div>
                   <div>
-                    <p className="text-sm text-muted-foreground mb-1">Claim Type</p>
-                    <p className="text-base font-medium text-foreground">{claimData.claim.service_type}</p>
+                    <p className="text-sm text-muted-foreground mb-1">Patient Sex</p>
+                    <p className="text-base font-medium text-foreground">{claimData.claim.patient_sex || 'N/A'}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground mb-1">Patient SSN</p>
+                    <p className="text-base font-medium text-foreground">{claimData.claim.patient_ssn || 'N/A'}</p>
+                  </div>
+                  {claimData.claim.patient_address && (
+                    <div>
+                      <p className="text-sm text-muted-foreground mb-1">Patient Address</p>
+                      <p className="text-base font-medium text-foreground">
+                        {claimData.claim.patient_address}
+                        {claimData.claim.patient_city && `, ${claimData.claim.patient_city}`}
+                        {claimData.claim.patient_state && `, ${claimData.claim.patient_state}`}
+                        {claimData.claim.patient_zip && ` ${claimData.claim.patient_zip}`}
+                      </p>
+                    </div>
+                  )}
+                  {claimData.claim.insured_name && (
+                    <div>
+                      <p className="text-sm text-muted-foreground mb-1">Insured Name</p>
+                      <p className="text-base font-medium text-foreground">{claimData.claim.insured_name}</p>
+                    </div>
+                  )}
+                  {claimData.claim.patient_relationship && (
+                    <div>
+                      <p className="text-sm text-muted-foreground mb-1">Patient Relationship</p>
+                      <p className="text-base font-medium text-foreground">{claimData.claim.patient_relationship}</p>
+                    </div>
+                  )}
+                  <div>
+                    <p className="text-sm text-muted-foreground mb-1">Insurance Type</p>
+                    <p className="text-base font-medium text-foreground">{claimData.claim.insurance_type || 'N/A'}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground mb-1">Policy Number</p>
+                    <p className="text-base font-medium text-foreground">{claimData.claim.policy_number}</p>
+                  </div>
+                  {claimData.claim.policy_group_number && (
+                    <div>
+                      <p className="text-sm text-muted-foreground mb-1">Policy Group Number</p>
+                      <p className="text-base font-medium text-foreground">{claimData.claim.policy_group_number}</p>
+                    </div>
+                  )}
+                  <div>
+                    <p className="text-sm text-muted-foreground mb-1">Service Type</p>
+                    <p className="text-base font-medium text-foreground">{claimData.claim.service_type || 'Medical'}</p>
                   </div>
                   <div>
                     <p className="text-sm text-muted-foreground mb-1">Service Date</p>
@@ -425,10 +510,47 @@ export default function ClaimDetailPage() {
                       {formatDate(claimData.claim.service_date)}
                     </p>
                   </div>
+                  {claimData.claim.illness_injury_date && (
+                    <div>
+                      <p className="text-sm text-muted-foreground mb-1">Illness/Injury Date</p>
+                      <p className="text-base font-medium text-foreground">
+                        {formatDate(claimData.claim.illness_injury_date)}
+                      </p>
+                    </div>
+                  )}
+                  {claimData.claim.referring_provider_name && (
+                    <div>
+                      <p className="text-sm text-muted-foreground mb-1">Referring Provider</p>
+                      <p className="text-base font-medium text-foreground">{claimData.claim.referring_provider_name}</p>
+                      {claimData.claim.referring_provider_npi && (
+                        <p className="text-xs text-muted-foreground">NPI: {claimData.claim.referring_provider_npi}</p>
+                      )}
+                    </div>
+                  )}
                   <div>
                     <p className="text-sm text-muted-foreground mb-1">Healthcare Provider</p>
                     <p className="text-base font-medium text-foreground">{claimData.claim.provider_name}</p>
+                    {claimData.claim.provider_npi && (
+                      <p className="text-xs text-muted-foreground">NPI: {claimData.claim.provider_npi}</p>
+                    )}
                   </div>
+                  {claimData.claim.provider_address && (
+                    <div>
+                      <p className="text-sm text-muted-foreground mb-1">Provider Address</p>
+                      <p className="text-base font-medium text-foreground">
+                        {claimData.claim.provider_address}
+                        {claimData.claim.provider_city && `, ${claimData.claim.provider_city}`}
+                        {claimData.claim.provider_state && `, ${claimData.claim.provider_state}`}
+                        {claimData.claim.provider_zip && ` ${claimData.claim.provider_zip}`}
+                      </p>
+                    </div>
+                  )}
+                  {claimData.claim.provider_tax_id && (
+                    <div>
+                      <p className="text-sm text-muted-foreground mb-1">Provider Tax ID</p>
+                      <p className="text-base font-medium text-foreground">{claimData.claim.provider_tax_id}</p>
+                    </div>
+                  )}
                   <div>
                     <p className="text-sm text-muted-foreground mb-1">Claim Amount</p>
                     <p className="text-base font-medium text-primary">
@@ -437,14 +559,73 @@ export default function ClaimDetailPage() {
                   </div>
                 </div>
 
-                <div className="mt-6 pt-6 border-t border-border">
-                  <p className="text-sm text-muted-foreground mb-2">Diagnosis/Treatment</p>
-                  <p className="text-base font-medium text-foreground">{claimData.diagnosis}</p>
-                </div>
+                {(claimData.claim.diagnosis_code || claimData.claim.procedure_code) && (
+                  <div className="mt-6 pt-6 border-t border-border">
+                    <p className="text-sm text-muted-foreground mb-2">Diagnosis Codes</p>
+                    <div className="flex flex-wrap gap-2 mb-4">
+                      <span className="text-base font-medium text-foreground">{claimData.claim.diagnosis_code}</span>
+                      {claimData.claim.diagnosis_code_2 && <span className="text-base font-medium text-foreground">{claimData.claim.diagnosis_code_2}</span>}
+                      {claimData.claim.diagnosis_code_3 && <span className="text-base font-medium text-foreground">{claimData.claim.diagnosis_code_3}</span>}
+                      {claimData.claim.diagnosis_code_4 && <span className="text-base font-medium text-foreground">{claimData.claim.diagnosis_code_4}</span>}
+                    </div>
+                    {claimData.claim.procedure_code && (
+                      <>
+                        <p className="text-sm text-muted-foreground mb-2">Procedure Codes</p>
+                        <div className="flex flex-wrap gap-2">
+                          <span className="text-base font-medium text-foreground">{claimData.claim.procedure_code}</span>
+                          {claimData.claim.procedure_code_2 && <span className="text-base font-medium text-foreground">{claimData.claim.procedure_code_2}</span>}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+
+                {claimData.claim.service_lines && (
+                  <div className="mt-6 pt-6 border-t border-border">
+                    <p className="text-sm text-muted-foreground mb-2">Service Lines</p>
+                    <div className="space-y-3">
+                      {JSON.parse(claimData.claim.service_lines || '[]').map((line, idx) => (
+                        <div key={idx} className="p-3 bg-muted/50 rounded-lg">
+                          <p className="text-sm font-semibold text-foreground mb-2">Service Line {idx + 1}</p>
+                          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">
+                            <div>
+                              <span className="text-muted-foreground">Date: </span>
+                              <span className="font-medium">{formatDate(line.serviceDate)}</span>
+                            </div>
+                            <div>
+                              <span className="text-muted-foreground">Procedure: </span>
+                              <span className="font-medium">{line.procedureCode}</span>
+                            </div>
+                            <div>
+                              <span className="text-muted-foreground">Charges: </span>
+                              <span className="font-medium">${parseFloat(line.charges || 0).toFixed(2)}</span>
+                            </div>
+                            <div>
+                              <span className="text-muted-foreground">Units: </span>
+                              <span className="font-medium">{line.daysUnits || '1'}</span>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {claimData.claim.physician_signature && (
+                  <div className="mt-6 pt-6 border-t border-border">
+                    <p className="text-sm text-muted-foreground mb-1">Physician Signature</p>
+                    <p className="text-base font-medium text-foreground">{claimData.claim.physician_signature}</p>
+                    {claimData.claim.physician_signature_date && (
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Signed: {formatDate(claimData.claim.physician_signature_date)}
+                      </p>
+                    )}
+                  </div>
+                )}
 
                 <div className="mt-6 pt-6 border-t border-border">
                   <p className="text-sm text-muted-foreground mb-2">Additional Notes</p>
-                  <p className="text-base text-foreground">{claimData.notes}</p>
+                  <p className="text-base text-foreground">{claimData.claim.notes || 'No additional notes'}</p>
                 </div>
               </CardContent>
             </Card>

@@ -276,7 +276,7 @@ export default function ClaimsDashboard() {
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                         <div>
                           <p className="text-xs text-muted-foreground mb-1">Type</p>
-                          <p className="text-sm font-medium text-foreground">{claim.service_type || 'Medical'}</p>
+                          <p className="text-sm font-medium text-foreground">{claim.service_type || claim.insurance_type || 'Medical'}</p>
                         </div>
                         <div>
                           <p className="text-xs text-muted-foreground mb-1">Provider</p>
@@ -292,10 +292,38 @@ export default function ClaimsDashboard() {
                         <div>
                           <p className="text-xs text-muted-foreground mb-1">Service Date</p>
                           <p className="text-sm font-medium text-foreground">
-                            {new Date(claim.service_date).toLocaleDateString()}
+                            {claim.service_date ? new Date(claim.service_date).toLocaleDateString() : 'N/A'}
                           </p>
                         </div>
                       </div>
+                      {(claim.diagnosis_code || claim.procedure_code) && (
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-3">
+                          {claim.diagnosis_code && (
+                            <div>
+                              <p className="text-xs text-muted-foreground mb-1">Diagnosis</p>
+                              <p className="text-sm font-medium text-foreground">{claim.diagnosis_code}</p>
+                            </div>
+                          )}
+                          {claim.procedure_code && (
+                            <div>
+                              <p className="text-xs text-muted-foreground mb-1">Procedure</p>
+                              <p className="text-sm font-medium text-foreground">{claim.procedure_code}</p>
+                            </div>
+                          )}
+                          {claim.provider_npi && (
+                            <div>
+                              <p className="text-xs text-muted-foreground mb-1">Provider NPI</p>
+                              <p className="text-sm font-medium text-foreground">{claim.provider_npi}</p>
+                            </div>
+                          )}
+                          {claim.policy_number && (
+                            <div>
+                              <p className="text-xs text-muted-foreground mb-1">Policy #</p>
+                              <p className="text-sm font-medium text-foreground">{claim.policy_number}</p>
+                            </div>
+                          )}
+                        </div>
+                      )}
                       {claim.confidence && (
                         <div className="mt-3 flex items-center gap-2">
                           <TrendingUp className="h-4 w-4 text-muted-foreground" />
