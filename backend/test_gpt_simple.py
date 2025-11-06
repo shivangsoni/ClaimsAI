@@ -2,7 +2,7 @@ import requests
 import json
 
 # Test GPT-4 with simple text
-url = 'http://localhost:5000/api/claims/analyze-text'
+url = 'http://localhost:8000/api/claims/analyze-text'
 sample_text = '''
 MEDICAL CLAIM FORM
 

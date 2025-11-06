@@ -8,7 +8,7 @@ import time
 def test_timeout_handling():
     """Test that the API handles timeouts gracefully"""
     
-    backend_url = "http://localhost:5000/api"
+    backend_url = "http://localhost:8000/api"
     
     # Test with the invalid claim example (should process quickly)
     test_text = """
@@ -77,7 +77,7 @@ My car got damaged somehow. I think someone hit it but I'm not sure.
         print("❌ Request timed out at client level")
     except requests.exceptions.ConnectionError:
         print("❌ Could not connect to backend server")
-        print("💡 Make sure the backend server is running on http://localhost:5000")
+        print("💡 Make sure the backend server is running on http://localhost:8000")
     except Exception as e:
         print(f"❌ Unexpected error: {str(e)}")
 

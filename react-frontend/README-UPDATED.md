@@ -52,7 +52,7 @@ This is the modernized version of the Claims AI frontend, updated with component
 
 ## Backend Integration
 
-The frontend connects to the Python Flask backend at `http://localhost:5000`. Make sure the backend is running for full functionality.
+The frontend connects to the Python Flask backend at `http://localhost:8000`. Make sure the backend is running for full functionality.
 
 ## Development Notes
 

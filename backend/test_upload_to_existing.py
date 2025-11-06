@@ -5,7 +5,7 @@ def test_upload_to_existing_claim():
     """Test uploading document to an existing claim"""
     
     claim_id = "CLM_20251103_203506"
-    url = f'http://localhost:5000/api/claims/{claim_id}/upload'
+    url = f'http://localhost:8000/api/claims/{claim_id}/upload'
     
     # Check if test file exists
     test_file_path = r'c:\Users\shison\source\repos\ClaimsAI\ClaimsAI\test-claims\valid_claim_example.txt'

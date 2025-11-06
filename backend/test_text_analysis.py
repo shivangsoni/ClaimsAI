@@ -3,7 +3,7 @@ import json
 import os
 
 def test_text_analysis():
-    url = 'http://localhost:5000/api/claims/analyze-text'
+    url = 'http://localhost:8000/api/claims/analyze-text'
     
     # Read the test claim text
     test_file_path = r'c:\Users\shison\source\repos\ClaimsAI\ClaimsAI\test-claims\valid_claim_example.txt'
