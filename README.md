@@ -78,22 +78,26 @@ npm start
 ## Configuration
 
 ### Required Environment Variables
-Create a `.env` file in the `backend/` directory with the following required configurations:
+Create a `.env` file in the `backend/` directory with the following configurations:
 
 ```env
 # OpenAI Configuration (REQUIRED)
-openai.api_key=your_openai_api_key_here
+OPENAI_API_KEY=your_openai_api_key_here
 
-# Tavily Search API (REQUIRED for web search features)
-TAVILY_API_KEY=your_tavily_api_key_here
-
-# Opik Telemetry Configuration (REQUIRED for monitoring)
+# Opik Telemetry Configuration (Optional - for monitoring)
 OPIK_API_KEY=your_opik_api_key_here
-OPIK_WORKSPACE=your_workspace_name
-OPIK_PROJECT_NAME=your_project_name
+OPIK_PROJECT_NAME=claimsai-document-analysis
+OPIK_WORKSPACE=default
 ```
 
-**⚠️ All configuration variables are required for the system to function properly.**
+**⚠️ OPENAI_API_KEY is required for the system to function. Opik configuration is optional for telemetry.**
+
+Copy the example file:
+```bash
+cd backend
+cp .env.example .env
+# Edit .env with your actual API keys
+```
 
 ### Getting Your API Keys
 
@@ -102,12 +106,7 @@ OPIK_PROJECT_NAME=your_project_name
    - Create a new API key
    - Ensure you have sufficient credits for GPT-4o-mini usage
 
-2. **Tavily API Key**:
-   - Visit https://tavily.com/
-   - Sign up and get your API key
-   - Used for enhanced web search capabilities
-
-3. **Opik Configuration**:
+2. **Opik Configuration** (Optional):
    - Visit https://www.comet.com/opik
    - Sign up and create a project
    - Get your API key from the settings
@@ -184,8 +183,8 @@ Update React components in `react-frontend/src/components/` for interface change
 
 ### Configuration Issues
 - **Missing .env file**: Copy `.env.example` to `.env` and fill in your API keys
-- **Invalid API Keys**: Verify all keys are correct and have sufficient credits/quota
-- **Required Variables**: Ensure `openai.api_key`, `TAVILY_API_KEY`, `OPIK_API_KEY`, `OPIK_WORKSPACE`, and `OPIK_PROJECT_NAME` are all set
+- **Invalid API Keys**: Verify OpenAI API key is correct and has sufficient credits
+- **Required Variables**: Ensure `OPENAI_API_KEY` is set (Opik variables are optional)
 
 ### Runtime Issues  
 - **CORS Errors**: Check that backend is running on port 5000
@@ -194,6 +193,106 @@ Update React components in `react-frontend/src/components/` for interface change
 - **React Build Errors**: Delete node_modules and run `npm install` again
 - **LangGraph Processing**: Run `python test_langgraph_integration.py` to verify workflow
 
+## Contributing
+
+### Development Guidelines
+1. **Code Style**: Follow PEP 8 for Python, ESLint for JavaScript
+2. **Testing**: Test new features before committing
+3. **Documentation**: Update README for any new features or configuration changes
+4. **Environment**: Use virtual environments for Python dependencies
+
+### Project Structure Details
+
+#### Backend Components
+- **`app.py`**: Main Flask application with CORS configuration
+- **`routes/`**: Modular API endpoints
+  - `claims_routes.py`: Document upload and analysis endpoints
+  - `eligibility_routes.py`: Policy eligibility checking
+  - `recommendations_routes.py`: AI-powered recommendations
+- **`utils/`**: Core business logic
+  - `document_processor.py`: LangGraph workflows and AI analysis
+  - `database.py`: SQLite database management
+  - `claim_validator.py`: Data validation logic
+  - `eligibility_checker.py`: Policy eligibility rules
+  - `recommendation_engine.py`: Recommendation algorithms
+- **`models/`**: Database schema definitions
+- **`database/`**: SQLite database files (auto-generated)
+
+#### Frontend Components
+- **`components/`**: React UI components
+  - `ClaimsDashboard.jsx`: Main dashboard view
+  - `ClaimDetailPage.jsx`: Individual claim analysis view
+  - `NewClaimForm.jsx`: Claim creation form
+  - `DocumentUpload.jsx`: File upload interface
+- **`services/api.js`**: Centralized API client
+- **`lib/utils.js`**: Utility functions and helpers
+
+### Technology Stack
+- **Backend**: Python 3.8+, Flask, SQLite, LangGraph
+- **Frontend**: React 18, Tailwind CSS, Lucide React
+- **AI/ML**: OpenAI GPT-4o-mini, LangGraph workflows
+- **Observability**: Opik telemetry (optional)
+- **File Processing**: PyPDF2, Pillow (PIL)
+
+## Deployment
+
+### Production Deployment
+1. **Environment Setup**:
+   ```bash
+   # Set production environment variables
+   export FLASK_ENV=production
+   export OPENAI_API_KEY=your_production_key
+   ```
+
+2. **Database Setup**:
+   ```bash
+   # Initialize production database
+   python -c "from utils.database import DatabaseManager; db = DatabaseManager()"
+   ```
+
+3. **Static Files**:
+   ```bash
+   # Build React frontend
+   cd react-frontend
+   npm run build
+   ```
+
+### Docker Deployment (Optional)
+Create a `Dockerfile` in the root directory for containerized deployment.
+
+## Security Considerations
+- **API Keys**: Never commit API keys to version control
+- **File Upload**: Validate file types and sizes to prevent abuse
+- **Input Sanitization**: Sanitize all user inputs before processing
+- **CORS**: Configure CORS settings appropriately for production
+
+## Performance Optimization
+- **AI Requests**: Implement request caching for repeated document analysis
+- **Database**: Add indexes for frequently queried fields
+- **File Storage**: Consider cloud storage for large file volumes
+- **Frontend**: Implement lazy loading for large claim lists
+
+## Monitoring and Observability
+- **Opik Integration**: Optional telemetry for AI workflow monitoring
+- **Logging**: Check Flask logs for backend issues
+- **Performance**: Monitor response times and AI processing duration
+- **Error Tracking**: Implement error logging for production use
+
+## License
+This project is for educational and development purposes. Review license requirements for production use.
+
 ## Support
 
-For issues or questions, check the console output for detailed error messages. Make sure all dependencies are properly installed and API keys are configured.
+### Getting Help
+1. **Check Logs**: Review console output for detailed error messages
+2. **Verify Setup**: Ensure all dependencies are installed and API keys configured
+3. **Test Integration**: Run the test suite to verify system functionality
+4. **Documentation**: Refer to this README for setup and troubleshooting
+
+### Common Issues
+- **Port Conflicts**: Change ports in configuration if 5000 (backend) or 3000 (frontend) are in use
+- **Permission Errors**: Ensure write permissions for uploads/ directory
+- **Memory Issues**: Monitor memory usage during large file processing
+- **API Rate Limits**: Implement backoff strategies for OpenAI API calls
+
+For detailed error diagnostics, enable debug mode in Flask and check browser developer tools for frontend issues.
