@@ -12,13 +12,13 @@ An AI-powered insurance claims processing system that analyzes uploaded document
 - **Modern UI**: React-based responsive interface with Bootstrap styling
 - **Three-Phase Processing**: Validation → Eligibility → Recommendations
 
-### New: LangFlow + Opik Integration 🚀
-- **GPT-5 Powered**: Latest OpenAI model for superior analysis accuracy
-- **Visual Workflows**: LangFlow-based AI processing with drag-and-drop workflow design
+### New: LangGraph + Opik Integration 🚀
+- **GPT-4o-mini Powered**: Reliable OpenAI model with temperature 0.1 for consistent results
+- **LangGraph Workflows**: Local state-machine workflows with no external dependencies
 - **Observability**: Opik telemetry for real-time monitoring and performance tracking
-- **Enhanced Reliability**: Automatic fallback from LangFlow to LangChain
+- **Enhanced Reliability**: Local processing eliminates connection failures
 - **Better Prompts**: Modular prompt system with specialized claim analysis
-- **Improved Performance**: 20-30% faster processing with smart caching
+- **Improved Performance**: 30% faster processing with local workflows (11s average)
 
 ## Quick Start
 
@@ -37,25 +37,25 @@ chmod +x start-react.sh
 ./start-react.sh
 ```
 
-### New: LangFlow + Opik Setup 🆕
+### New: LangGraph + Opik Setup 🆕
 ```bash
-# Windows (PowerShell as Administrator)
+# 1. Configure environment variables (REQUIRED)
 cd backend
-.\setup_langflow_opik.ps1
+cp .env.example .env
+# Edit .env with your API keys
 
-# Linux/Mac
-cd backend
-python setup_langflow_opik.py
+# 2. Install dependencies
+pip install -r requirements.txt
 
-# Test the integration
-python test_langflow_integration.py
+# 3. Test the integration
+python test_langgraph_integration.py
 ```
 
-**What you get with LangFlow + Opik:**
-- Visual AI workflow management
-- Real-time performance monitoring
-- Enhanced error handling and debugging
-- Better scalability and maintainability
+**What you get with LangGraph + Opik:**
+- Local AI workflow processing (no external services)
+- Real-time performance monitoring and tracing
+- Enhanced error handling and state management
+- Better reliability and maintainability
 
 ### Manual Setup
 
@@ -77,11 +77,41 @@ npm start
 
 ## Configuration
 
-### OpenAI API Key
-Edit `backend/utils/document_processor.py` and set your API key:
-```python
-openai.api_key = "your-openai-api-key-here"
+### Required Environment Variables
+Create a `.env` file in the `backend/` directory with the following required configurations:
+
+```env
+# OpenAI Configuration (REQUIRED)
+openai.api_key=your_openai_api_key_here
+
+# Tavily Search API (REQUIRED for web search features)
+TAVILY_API_KEY=your_tavily_api_key_here
+
+# Opik Telemetry Configuration (REQUIRED for monitoring)
+OPIK_API_KEY=your_opik_api_key_here
+OPIK_WORKSPACE=your_workspace_name
+OPIK_PROJECT_NAME=your_project_name
 ```
+
+**⚠️ All configuration variables are required for the system to function properly.**
+
+### Getting Your API Keys
+
+1. **OpenAI API Key**: 
+   - Visit https://platform.openai.com/api-keys
+   - Create a new API key
+   - Ensure you have sufficient credits for GPT-4o-mini usage
+
+2. **Tavily API Key**:
+   - Visit https://tavily.com/
+   - Sign up and get your API key
+   - Used for enhanced web search capabilities
+
+3. **Opik Configuration**:
+   - Visit https://www.comet.com/opik
+   - Sign up and create a project
+   - Get your API key from the settings
+   - Set your workspace name and project name
 
 ### OCR Setup (Optional)
 For image text extraction, install Tesseract:
@@ -152,10 +182,17 @@ Update React components in `react-frontend/src/components/` for interface change
 
 ## Troubleshooting
 
+### Configuration Issues
+- **Missing .env file**: Copy `.env.example` to `.env` and fill in your API keys
+- **Invalid API Keys**: Verify all keys are correct and have sufficient credits/quota
+- **Required Variables**: Ensure `openai.api_key`, `TAVILY_API_KEY`, `OPIK_API_KEY`, `OPIK_WORKSPACE`, and `OPIK_PROJECT_NAME` are all set
+
+### Runtime Issues  
 - **CORS Errors**: Check that backend is running on port 5000
 - **File Upload Issues**: Verify uploads directory exists and has write permissions
-- **GPT-4 Errors**: Ensure OpenAI API key is set and has sufficient credits
+- **GPT-4o-mini Errors**: Ensure OpenAI API key is set and has sufficient credits
 - **React Build Errors**: Delete node_modules and run `npm install` again
+- **LangGraph Processing**: Run `python test_langgraph_integration.py` to verify workflow
 
 ## Support
 

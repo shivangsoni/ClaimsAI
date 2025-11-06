@@ -14,7 +14,7 @@ The ClaimsAI system has been upgraded to use:
 
 ```
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   Document      │    │   LangFlow      │                           │   GPT-5         │
+│   Document      │    │   LangGraph     │    │   GPT-4o-mini   │
 │   Upload        │───▶│   Workflow      │───▶│   Analysis      │
 └─────────────────┘    └─────────────────┘    └─────────────────┘
                                 │                        │
@@ -25,19 +25,25 @@ The ClaimsAI system has been upgraded to use:
                        └─────────────────┘    └─────────────────┘
 ```
 
+**Key Benefits:**
+- **Local Processing**: No external service dependencies (localhost:7860 removed)
+- **State Management**: Robust error handling with state machine workflows  
+- **Reliable**: No network connection failures or service unavailability
+- **Fast**: Local execution with ~11 second average processing time
+
 ## New Features
 
-### 1. LangFlow Integration
-- Visual workflow design for claims processing
-- Hot-swappable AI models and prompts
-- Better error handling and retry mechanisms
-- Automatic fallback to LangChain if LangFlow is unavailable
+### 1. LangGraph Integration  
+- Local state-machine workflows for claims processing
+- Built-in error handling and recovery mechanisms
+- No external service dependencies or connection failures
+- Automatic fallback to direct LangChain if needed
 
-### 2. GPT-5 Model Support
-- Latest OpenAI model with enhanced reasoning
-- Increased token limit (4000 tokens vs 2000)
-- Improved accuracy in complex document analysis
-- Note: GPT-5 uses default temperature (1.0) only
+### 2. GPT-4o-mini Model Support
+- Reliable OpenAI model with consistent performance
+- Temperature 0.1 for deterministic and reliable results  
+- Optimized for document analysis and structured output
+- 2000 token limit with intelligent document truncation
 
 ### 3. Opik Telemetry
 - Real-time performance monitoring
@@ -57,49 +63,45 @@ The ClaimsAI system has been upgraded to use:
 
 ```bash
 cd backend
-python setup_langflow_opik.py
-```
-
-Or manually:
-```bash
 pip install -r requirements.txt
 ```
 
-### 2. Configure Environment Variables
+**Key Dependencies:**
+- `langgraph>=0.2.0` - Local workflow orchestration
+- `opik>=0.1.0` - Telemetry and tracing
+- `langchain-openai>=0.1.0` - OpenAI integration
 
-Update your `.env` file:
+### 2. Configure Environment Variables (REQUIRED)
+
+Create a `.env` file in the backend directory with all required variables:
 ```env
-# OpenAI Configuration
-OPENAI_API_KEY=your_openai_api_key_here
+# OpenAI Configuration (REQUIRED)
+openai.api_key=your_openai_api_key_here
 
-# LangFlow Configuration
-LANGFLOW_URL=http://localhost:7860
-LANGFLOW_FLOW_ID=claims-analysis-flow
+# Tavily Search API (REQUIRED)
+TAVILY_API_KEY=your_tavily_api_key_here
 
-# Opik Configuration
-OPIK_PROJECT_NAME=claimsai-document-analysis
+# Opik Telemetry Configuration (REQUIRED)
 OPIK_API_KEY=your_opik_api_key_here
+OPIK_WORKSPACE=your_workspace_name
+OPIK_PROJECT_NAME=your_project_name
 ```
 
-### 3. Start LangFlow
+**⚠️ Configuration Requirements:**
+- All variables are **REQUIRED** for the system to function
+- Without proper configuration, document processing will fail
+- Opik telemetry provides essential monitoring and debugging capabilities
 
-In a separate terminal:
-```bash
-langflow run --host 0.0.0.0 --port 7860
-```
-
-### 4. Import Flow Configuration
-
-1. Open http://localhost:7860 in your browser
-2. Import `langflow_config.json`
-3. Configure your OpenAI API key in the ChatOpenAI node
-4. Deploy the flow
-
-### 5. Test the Integration
+### 3. Test the Integration
 
 ```bash
-python test_langflow_integration.py
+python test_langgraph_integration.py
 ```
+
+**No External Services Required:**
+- LangGraph runs entirely locally
+- No need to start external services (removed localhost:7860 dependency)
+- Workflows are defined in code for better maintainability
 
 ## Usage
 
@@ -121,9 +123,10 @@ print(f"Reasoning: {result['decision_reasoning']}")
 ### Check Integration Status
 
 ```python
-# Check LangFlow health
-langflow_health = processor.get_langflow_health()
-print(f"LangFlow: {langflow_health['status']}")
+# Check LangGraph status
+langgraph_status = processor.get_langgraph_status()
+print(f"LangGraph Available: {langgraph_status['available']}")
+print(f"Workflow Initialized: {langgraph_status['workflow_initialized']}")
 
 # Check Opik status
 opik_status = processor.get_opik_status()
@@ -151,10 +154,10 @@ GET /api/integration/status
 Response:
 ```json
 {
-  "langflow": {
-    "status": "healthy",
-    "url": "http://localhost:7860",
-    "available": true
+  "langgraph": {
+    "available": true,
+    "workflow_initialized": true,
+    "processing_method": "langgraph"
   },
   "opik": {
     "available": true,
@@ -162,8 +165,8 @@ Response:
     "project_name": "claimsai-document-analysis"
   },
   "processing": {
-    "method": "langflow_with_langchain_fallback",
-    "ai_model": "gpt-5",
+    "method": "langgraph",
+    "ai_model": "gpt-4o-mini",
     "telemetry_enabled": true
   }
 }
@@ -205,35 +208,36 @@ Monitor through LangFlow UI:
 
 ### Common Issues
 
-1. **LangFlow Connection Failed**
+1. **Configuration Missing**
    ```bash
-   # Check if LangFlow is running
-   curl http://localhost:7860/health
+   # Check .env file exists and has required variables
+   cat .env
    
-   # Start LangFlow if needed
-   langflow run --host 0.0.0.0 --port 7860
+   # Verify all required variables are set
+   echo $OPIK_API_KEY
+   echo $TAVILY_API_KEY
    ```
 
 2. **Opik Tracing Not Working**
    ```bash
-   # Check Opik installation
+   # Check Opik installation and version
    pip show opik
    
-   # Verify API key
-   echo $OPIK_API_KEY
+   # Test Opik connection
+   python -c "import opik; print('Opik available')"
    ```
 
-3. **Model Timeout Issues**
-   - Increase timeout in LangFlow ChatOpenAI node
-   - Reduce document size (auto-truncation at 4000 chars)
-   - Check OpenAI API status
+3. **Document Processing Errors**
+   - Check OpenAI API key validity and credits
+   - Verify document size (auto-truncation at 4000 chars)
+   - Review Opik dashboard for detailed error traces
 
 ### Error Handling
 
 The system implements graceful degradation:
-1. **Primary**: LangFlow workflow execution
+1. **Primary**: LangGraph local workflow execution
 2. **Fallback**: Direct LangChain processing
-3. **Final**: Structured error response
+3. **Final**: Structured error response with detailed logging
 
 ### Performance Optimization
 
@@ -283,10 +287,11 @@ def my_function():
 ## Support
 
 For issues:
-1. Check integration status: `/api/integration/status`
-2. Run diagnostics: `python test_langflow_integration.py`
-3. Review logs in Opik dashboard
-4. Check LangFlow execution logs
+1. **Check Configuration**: Verify all required environment variables in `.env`
+2. **Integration Status**: Check `/api/integration/status` endpoint
+3. **Run Diagnostics**: `python test_langgraph_integration.py`
+4. **Monitor Traces**: Review logs in Opik dashboard for detailed debugging
+5. **Local Processing**: No external service dependencies to troubleshoot
 
 ## Performance Metrics
 
