@@ -37,7 +37,11 @@ class DatabaseManager:
                     diagnosis_code TEXT NOT NULL,
                     procedure_code TEXT NOT NULL,
                     amount_billed DECIMAL(10,2) NOT NULL,
-                    status TEXT DEFAULT 'submitted',
+                    status TEXT DEFAULT 'open' CHECK (status IN ('open', 'validation_complete', 'verified', 'approved', 'denied', 'need_more_info')),
+                    ai_summary TEXT,
+                    ai_suggested_status TEXT,
+                    ai_decision_summary TEXT,
+                    human_notes TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
@@ -134,6 +138,21 @@ class DatabaseManager:
                     file_path TEXT NOT NULL,
                     extracted_text TEXT,
                     upload_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (claim_id) REFERENCES claims (claim_id)
+                )
+            ''')
+            
+            # Create status_transitions table for tracking status changes
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS status_transitions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    claim_id TEXT NOT NULL,
+                    from_status TEXT,
+                    to_status TEXT NOT NULL,
+                    changed_by TEXT NOT NULL,
+                    change_reason TEXT,
+                    ai_suggested BOOLEAN DEFAULT FALSE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (claim_id) REFERENCES claims (claim_id)
                 )
             ''')
@@ -407,6 +426,101 @@ class DatabaseManager:
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute('SELECT * FROM documents WHERE claim_id = ? ORDER BY upload_timestamp', (claim_id,))
+            return [dict(row) for row in cursor.fetchall()]
+    
+    def update_claim_status(self, claim_id, new_status, changed_by, change_reason=None, ai_suggested=False):
+        """
+        Update claim status and log the transition
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            
+            # Get current status
+            cursor.execute('SELECT status FROM claims WHERE claim_id = ?', (claim_id,))
+            result = cursor.fetchone()
+            if not result:
+                raise ValueError(f"Claim {claim_id} not found")
+            
+            current_status = result[0]
+            
+            # Update claim status
+            cursor.execute('''
+                UPDATE claims 
+                SET status = ?, updated_at = CURRENT_TIMESTAMP 
+                WHERE claim_id = ?
+            ''', (new_status, claim_id))
+            
+            # Log status transition
+            cursor.execute('''
+                INSERT INTO status_transitions 
+                (claim_id, from_status, to_status, changed_by, change_reason, ai_suggested)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (claim_id, current_status, new_status, changed_by, change_reason, ai_suggested))
+            
+            conn.commit()
+            return True
+    
+    def update_ai_suggestions(self, claim_id, ai_summary, suggested_status, decision_summary):
+        """
+        Update AI-generated suggestions for a claim
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                UPDATE claims 
+                SET ai_summary = ?, ai_suggested_status = ?, ai_decision_summary = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE claim_id = ?
+            ''', (ai_summary, suggested_status, decision_summary, claim_id))
+            
+            conn.commit()
+            return True
+    
+    def add_human_notes(self, claim_id, notes):
+        """
+        Add human notes to a claim
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                UPDATE claims 
+                SET human_notes = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE claim_id = ?
+            ''', (notes, claim_id))
+            
+            conn.commit()
+            return True
+    
+    def get_status_transitions(self, claim_id):
+        """
+        Get status transition history for a claim
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                SELECT * FROM status_transitions 
+                WHERE claim_id = ? 
+                ORDER BY created_at
+            ''', (claim_id,))
+            
+            return [dict(row) for row in cursor.fetchall()]
+    
+    def get_claims_by_status(self, status=None):
+        """
+        Get claims filtered by status
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            
+            if status:
+                cursor.execute('SELECT * FROM claims WHERE status = ? ORDER BY updated_at DESC', (status,))
+            else:
+                cursor.execute('SELECT * FROM claims ORDER BY updated_at DESC')
+            
             return [dict(row) for row in cursor.fetchall()]
 
 # Initialize database when module is imported

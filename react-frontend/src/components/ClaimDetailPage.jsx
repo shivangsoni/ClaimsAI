@@ -4,6 +4,7 @@ import { Button } from './ui/button';
 import { Card, CardContent } from './ui/card';
 import { Badge } from './ui/badge';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collapsible';
+import StatusManager from './StatusManager';
 import {
   ArrowLeft,
   CheckCircle2,
@@ -14,49 +15,51 @@ import {
   Lightbulb,
   Search,
   TrendingUp,
+  RefreshCw,
 } from 'lucide-react';
 import { claimsAPI } from '../services/api';
 import { useToast } from '../hooks/use-toast';
 
-function StatusBadge({ status, recommendation }) {
-  // Determine the display status - prioritize AI recommendation if available
-  let displayStatus = status;
-  if (recommendation) {
-    if (recommendation === 'APPROVED') {
-      displayStatus = 'approved';
-    } else if (recommendation === 'DENIED') {
-      displayStatus = 'rejected';
-    }
-  } else if (status === 'submitted') {
-    displayStatus = 'pending';
-  }
-
-  const styles = {
+function StatusBadge({ status }) {
+  // Map new 5-stage status system to display styles
+  const statusStyles = {
+    open: "bg-blue-500 text-white",
+    validation_complete: "bg-orange-500 text-white", 
+    verified: "bg-purple-500 text-white",
     approved: "bg-green-500 text-white",
+    denied: "bg-red-500 text-white",
+    need_more_info: "bg-yellow-500 text-white",
+    // Legacy status mapping
+    submitted: "bg-blue-400 text-white",
     pending: "bg-yellow-500 text-white",
     "under-review": "bg-blue-500 text-white",
     rejected: "bg-red-500 text-white",
-    submitted: "bg-blue-400 text-white",
   };
 
-  const labels = {
+  const statusLabels = {
+    open: "Open",
+    validation_complete: "Validation Complete",
+    verified: "Verified", 
     approved: "Approved",
+    denied: "Denied",
+    need_more_info: "Need More Info",
+    // Legacy status mapping
+    submitted: "Submitted",
     pending: "Pending Review",
     "under-review": "Under Review",
     rejected: "Rejected",
-    submitted: "Submitted",
   };
 
-  const icons = {
+  const statusIcons = {
     approved: <CheckCircle2 className="h-4 w-4" />,
   };
 
   return (
     <span
-      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium ${styles[displayStatus]}`}
+      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium ${statusStyles[status] || statusStyles.open}`}
     >
-      {displayStatus === "approved" && icons.approved}
-      {labels[displayStatus]}
+      {status === "approved" && statusIcons.approved}
+      {statusLabels[status] || status}
     </span>
   );
 }
@@ -65,6 +68,7 @@ export default function ClaimDetailPage() {
   const { id } = useParams();
   const [claimData, setClaimData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const { toast } = useToast();
 
   // Helper function to safely format dates
@@ -105,6 +109,22 @@ export default function ClaimDetailPage() {
       loadClaimDetails();
     }
   }, [id, loadClaimDetails]);
+
+  const handleStatusUpdate = async (response) => {
+    // Refresh claim data when status is updated
+    await loadClaimDetails();
+  };
+
+  const handleAIProcess = async (response) => {
+    // Refresh claim data when AI processing is complete
+    await loadClaimDetails();
+  };
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await loadClaimDetails();
+    setRefreshing(false);
+  };
 
   const toggleSection = (section) => {
     setOpenSections((prev) => ({ ...prev, [section]: !prev[section] }));
@@ -158,7 +178,7 @@ export default function ClaimDetailPage() {
     <div className="min-h-screen bg-background">
       {/* Header */}
       <header className="border-b border-border bg-card">
-        <div className="container mx-auto px-6 py-4">
+        <div className="container mx-auto px-6 py-4 flex items-center justify-between">
           <Link
             to="/dashboard"
             className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors"
@@ -166,6 +186,16 @@ export default function ClaimDetailPage() {
             <ArrowLeft className="h-4 w-4" />
             <span className="text-sm">Back to Dashboard</span>
           </Link>
+          
+          <Button
+            onClick={handleRefresh}
+            disabled={refreshing}
+            variant="outline"
+            className="flex items-center gap-2"
+          >
+            <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
+            Refresh
+          </Button>
         </div>
       </header>
 
@@ -176,10 +206,7 @@ export default function ClaimDetailPage() {
           <CardContent className="p-6">
             <div className="flex items-center gap-3">
               <h1 className="text-3xl font-bold text-foreground">{claimData.claim.patient_name}</h1>
-              <StatusBadge 
-                status={claimData.claim.status} 
-                recommendation={claimData.recommendations && claimData.recommendations.length > 0 ? claimData.recommendations[0].recommendation : null}
-              />
+              <StatusBadge status={claimData.claim.status} />
             </div>
             <p className="text-muted-foreground mt-2">
               Claim ID: {claimData.claim.claim_id} • Patient ID: {claimData.claim.patient_id}
@@ -207,6 +234,13 @@ export default function ClaimDetailPage() {
           </CardContent>
         </Card>
 
+        {/* Status Management */}
+        <StatusManager
+          claim={claimData.claim}
+          onStatusUpdate={handleStatusUpdate}
+          onAIProcess={handleAIProcess}
+        />
+
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Left Column - Claim Information */}
           <div className="lg:col-span-2 space-y-6">
@@ -229,9 +263,14 @@ export default function ClaimDetailPage() {
                         <div key={index} className="space-y-4">
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-3">
-                              <Badge className={rec.recommendation === 'APPROVED' ? 'bg-green-500' : rec.recommendation === 'DENIED' ? 'bg-red-500' : 'bg-yellow-500'}>
-                                {rec.recommendation}
-                              </Badge>
+                              <div className="flex items-center gap-2">
+                                <Badge className={rec.recommendation === 'APPROVED' ? 'bg-green-500' : rec.recommendation === 'DENIED' ? 'bg-red-500' : 'bg-yellow-500'}>
+                                  AI SUGGESTS: {rec.recommendation}
+                                </Badge>
+                                <span className="text-xs text-purple-600 bg-purple-100 px-2 py-1 rounded-full">
+                                  Suggestion Only
+                                </span>
+                              </div>
                               <span className="text-sm text-muted-foreground">Confidence: {rec.confidence}%</span>
                               <span className="text-sm text-muted-foreground">Score: {rec.overall_score}%</span>
                             </div>
@@ -502,28 +541,41 @@ export default function ClaimDetailPage() {
 
                 <div className="space-y-4">
                   <div>
-                    <p className="text-sm text-muted-foreground mb-2">Status:</p>
-                    <Badge
-                      variant={
-                        (claimData.recommendations && claimData.recommendations.length > 0 && claimData.recommendations[0].recommendation === "APPROVED")
-                          ? "success"
-                          : (claimData.recommendations && claimData.recommendations.length > 0 && claimData.recommendations[0].recommendation === "REJECTED")
-                            ? "destructive"
-                            : claimData.claim.status === "pending"
-                              ? "warning"
-                              : "info"
-                      }
-                      className="text-xs uppercase"
-                    >
-                      {claimData.recommendations && claimData.recommendations.length > 0 
-                        ? claimData.recommendations[0].recommendation
-                        : claimData.claim.status === "pending"
-                          ? "PENDING"
-                          : claimData.claim.status === "rejected"
-                            ? "REJECTED"
-                            : "UNDER REVIEW"}
-                    </Badge>
+                    <p className="text-sm text-muted-foreground mb-2">Current Status:</p>
+                    <StatusBadge status={claimData.claim.status} />
                   </div>
+
+                  {/* AI Suggestion Display */}
+                  {claimData.claim.ai_suggested_status && (
+                    <div>
+                      <p className="text-sm text-muted-foreground mb-2">AI Suggestion:</p>
+                      <div className="flex items-center gap-2">
+                        <StatusBadge status={claimData.claim.ai_suggested_status} />
+                        <span className="text-xs text-purple-600 bg-purple-100 px-2 py-1 rounded-full">
+                          Suggestion Only
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Recommendation from recommendations table */}
+                  {claimData.recommendations && claimData.recommendations.length > 0 && (
+                    <div>
+                      <p className="text-sm text-muted-foreground mb-2">AI Analysis:</p>
+                      <Badge
+                        variant={
+                          claimData.recommendations[0].recommendation === "APPROVED"
+                            ? "success"
+                            : claimData.recommendations[0].recommendation === "DENIED"
+                              ? "destructive"
+                              : "warning"
+                        }
+                        className="text-xs"
+                      >
+                        {claimData.recommendations[0].recommendation}
+                      </Badge>
+                    </div>
+                  )}
 
                   <div>
                     <p className="text-sm text-muted-foreground mb-2">Completeness:</p>
@@ -565,27 +617,27 @@ export default function ClaimDetailPage() {
                 <p className="text-sm text-muted-foreground mb-6">Track your claim's progress</p>
 
                 <div className="space-y-6">
-                  {/* Generate timeline from actual database data */}
+                  {/* Generate timeline based on new 5-stage status system */}
                   {[
                     { 
                       title: 'Claim Submitted', 
                       date: formatDate(claimData.claim.created_at),
-                      completed: true 
+                      completed: true // Always completed since claim exists
                     },
                     { 
                       title: 'Validation Complete', 
-                      date: claimData.validations?.[0] ? formatDate(claimData.validations[0].created_at) : 'Pending',
-                      completed: claimData.validations?.length > 0 
+                      date: ['validation_complete', 'verified', 'approved', 'denied'].includes(claimData.claim.status) ? 'Complete' : 'Pending',
+                      completed: ['validation_complete', 'verified', 'approved', 'denied'].includes(claimData.claim.status)
                     },
                     { 
-                      title: 'AI Analysis', 
-                      date: claimData.recommendations?.[0] ? formatDate(claimData.recommendations[0].created_at) : 'Pending',
-                      completed: claimData.recommendations?.length > 0 
+                      title: 'Verified', 
+                      date: ['verified', 'approved', 'denied'].includes(claimData.claim.status) ? 'Complete' : 'Pending',
+                      completed: ['verified', 'approved', 'denied'].includes(claimData.claim.status)
                     },
                     { 
                       title: 'Final Decision', 
-                      date: claimData.claim.status === 'approved' || claimData.claim.status === 'rejected' ? 'Complete' : 'Pending',
-                      completed: claimData.claim.status === 'approved' || claimData.claim.status === 'rejected'
+                      date: ['approved', 'denied'].includes(claimData.claim.status) ? 'Complete' : 'Pending',
+                      completed: ['approved', 'denied'].includes(claimData.claim.status)
                     }
                   ].map((item, index) => (
                     <div key={index} className="flex gap-4">

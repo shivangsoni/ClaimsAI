@@ -59,7 +59,7 @@ def submit_claim():
         
         response = {
             'claim_id': claim_id,
-            'status': 'submitted',
+            'status': 'open',
             'message': 'Claim submitted successfully',
             'timestamp': datetime.now().isoformat()
         }
@@ -123,17 +123,17 @@ def get_all_claims():
             params = []
             
             if status_filter:
-                # Handle filtering by both database status and AI recommendation
-                if status_filter.lower() == 'approved':
-                    where_conditions.append("(c.status = ? OR r.recommendation IN ('APPROVED', 'APPROVE'))")
-                    params.append('approved')
-                elif status_filter.lower() == 'rejected':
-                    where_conditions.append("(c.status = ? OR r.recommendation IN ('DENIED', 'DENY'))")
-                    params.append('rejected')
+                # Handle filtering by the new 5-stage status system
+                if status_filter in ['open', 'validation_complete', 'verified', 'approved', 'denied', 'need_more_info']:
+                    where_conditions.append("c.status = ?")
+                    params.append(status_filter)
+                # Legacy compatibility
                 elif status_filter.lower() == 'pending':
-                    where_conditions.append("(r.recommendation IS NULL OR r.recommendation = 'REVIEW')")
+                    where_conditions.append("c.status IN ('open', 'validation_complete')")
                 elif status_filter.lower() == 'under-review':
-                    where_conditions.append("(c.status = 'under-review' OR r.recommendation = 'REVIEW')")
+                    where_conditions.append("c.status = 'verified'")
+                elif status_filter.lower() == 'rejected':
+                    where_conditions.append("c.status = 'denied'")
                 else:
                     where_conditions.append("c.status = ?")
                     params.append(status_filter)
@@ -218,22 +218,13 @@ def get_claims_stats():
             cursor.execute("SELECT COUNT(*) as total FROM claims")
             total_claims = cursor.fetchone()[0]
             
-            # Claims by status - prioritize AI recommendations over database status
+            # Claims by status - use the new 5-stage system
             cursor.execute("""
                 SELECT 
-                    CASE 
-                        WHEN r.recommendation = 'APPROVED' OR r.recommendation = 'APPROVE' THEN 'approved'
-                        WHEN r.recommendation = 'DENIED' OR r.recommendation = 'DENY' THEN 'rejected'
-                        WHEN r.recommendation = 'REVIEW' THEN 'under-review'
-                        WHEN c.status = 'approved' THEN 'approved'
-                        WHEN c.status = 'rejected' THEN 'rejected'
-                        WHEN c.status = 'under-review' THEN 'under-review'
-                        ELSE 'pending'
-                    END as effective_status,
+                    c.status,
                     COUNT(*) as count
                 FROM claims c
-                LEFT JOIN recommendations r ON c.claim_id = r.claim_id
-                GROUP BY effective_status
+                GROUP BY c.status
             """)
             status_counts = {row[0]: row[1] for row in cursor.fetchall()}
             
@@ -637,6 +628,144 @@ def upload_document_to_existing_claim(claim_id):
         return jsonify({
             'error': f'Document upload failed for claim {claim_id}: {str(e)}'
         }), 500
+
+@claims_bp.route('/<claim_id>/status', methods=['PUT'])
+def update_claim_status(claim_id):
+    """
+    Update claim status (human-controlled)
+    """
+    try:
+        data = request.get_json()
+        
+        if not data or 'status' not in data:
+            return jsonify({'error': 'New status is required'}), 400
+        
+        new_status = data['status']
+        changed_by = data.get('changed_by', 'human_user')
+        change_reason = data.get('reason', 'Manual status change')
+        notes = data.get('notes')
+        
+        # Validate status
+        valid_statuses = ['open', 'validation_complete', 'verified', 'approved', 'denied', 'need_more_info']
+        if new_status not in valid_statuses:
+            return jsonify({'error': f'Invalid status. Must be one of: {valid_statuses}'}), 400
+        
+        db = DatabaseManager()
+        
+        # Update status
+        db.update_claim_status(claim_id, new_status, changed_by, change_reason, ai_suggested=False)
+        
+        # Add human notes if provided
+        if notes:
+            db.add_human_notes(claim_id, notes)
+        
+        return jsonify({
+            'claim_id': claim_id,
+            'new_status': new_status,
+            'changed_by': changed_by,
+            'timestamp': datetime.now().isoformat(),
+            'message': 'Status updated successfully'
+        }), 200
+        
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 404
+    except Exception as e:
+        return jsonify({'error': f'Status update failed: {str(e)}'}), 500
+
+@claims_bp.route('/<claim_id>/ai-process', methods=['POST'])
+def process_claim_with_ai(claim_id):
+    """
+    Process claim with AI to generate suggestions and move to validation_complete status
+    """
+    try:
+        db = DatabaseManager()
+        
+        # Get claim history to check current status
+        claim_history = db.get_claim_history(claim_id)
+        if not claim_history or not claim_history.get('claim'):
+            return jsonify({'error': f'Claim {claim_id} not found'}), 404
+        
+        claim = claim_history['claim']
+        
+        # AI can only process claims that are in 'open' status
+        if claim['status'] != 'open':
+            return jsonify({'error': f'Claim must be in "open" status to process with AI. Current status: {claim["status"]}'}), 400
+        
+        # Simulate AI processing - in real implementation, this would call your AI services
+        processor = DocumentProcessor()
+        
+        # Generate AI summary
+        ai_summary = f"AI Analysis for Claim {claim_id}: Patient {claim['patient_name']} submitted claim for {claim['service_type']} services on {claim['service_date']}. Amount billed: ${claim['amount_billed']}."
+        
+        # Determine AI suggested status based on existing recommendations
+        suggested_status = 'verified'  # Default suggestion
+        decision_summary = "Standard processing recommended"
+        
+        if claim_history.get('recommendations'):
+            latest_rec = claim_history['recommendations'][-1]
+            if latest_rec['recommendation'] in ['APPROVED', 'APPROVE']:
+                suggested_status = 'approved'
+                decision_summary = f"AI recommends APPROVAL with {latest_rec['confidence']}% confidence. {latest_rec.get('reason', '')}"
+            elif latest_rec['recommendation'] in ['DENIED', 'DENY']:
+                suggested_status = 'denied' 
+                decision_summary = f"AI recommends DENIAL with {latest_rec['confidence']}% confidence. {latest_rec.get('reason', '')}"
+            elif latest_rec['recommendation'] == 'REVIEW':
+                suggested_status = 'need_more_info'
+                decision_summary = f"AI recommends additional review. {latest_rec.get('reason', '')}"
+        
+        # Update claim with AI suggestions
+        db.update_ai_suggestions(claim_id, ai_summary, suggested_status, decision_summary)
+        
+        # Move claim to validation_complete status (AI-driven transition)
+        db.update_claim_status(claim_id, 'validation_complete', 'ai_system', 'AI analysis completed', ai_suggested=True)
+        
+        return jsonify({
+            'claim_id': claim_id,
+            'status': 'validation_complete',
+            'ai_summary': ai_summary,
+            'suggested_status': suggested_status,
+            'decision_summary': decision_summary,
+            'message': 'AI processing completed successfully',
+            'timestamp': datetime.now().isoformat()
+        }), 200
+        
+    except Exception as e:
+        return jsonify({'error': f'AI processing failed: {str(e)}'}), 500
+
+@claims_bp.route('/<claim_id>/transitions', methods=['GET'])
+def get_status_transitions(claim_id):
+    """
+    Get status transition history for a claim
+    """
+    try:
+        db = DatabaseManager()
+        transitions = db.get_status_transitions(claim_id)
+        
+        return jsonify({
+            'claim_id': claim_id,
+            'transitions': transitions
+        }), 200
+        
+    except Exception as e:
+        return jsonify({'error': f'Failed to get transitions: {str(e)}'}), 500
+
+@claims_bp.route('/by-status/<status>', methods=['GET'])
+def get_claims_by_status(status):
+    """
+    Get claims filtered by specific status
+    """
+    try:
+        db = DatabaseManager()
+        claims = db.get_claims_by_status(status if status != 'all' else None)
+        
+        return jsonify({
+            'status': status,
+            'claims': claims,
+            'count': len(claims)
+        }), 200
+        
+    except Exception as e:
+        return jsonify({'error': f'Failed to get claims: {str(e)}'}), 500
 
 @claims_bp.route('/documents/download/<int:document_id>', methods=['GET'])
 def download_document(document_id):

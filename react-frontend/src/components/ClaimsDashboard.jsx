@@ -8,41 +8,29 @@ import { ArrowLeft, Search, FileText, CheckCircle2, Clock, XCircle, DollarSign, 
 import { claimsAPI } from '../services/api';
 import { useToast } from '../hooks/use-toast';
 
-function StatusBadge({ status, recommendation }) {
-  // Determine the display status - prioritize AI recommendation if available
-  let displayStatus = status;
-  if (recommendation) {
-    if (recommendation === 'APPROVED') {
-      displayStatus = 'approved';
-    } else if (recommendation === 'DENIED') {
-      displayStatus = 'rejected';
-    }
-  } else if (status === 'submitted') {
-    displayStatus = 'pending';
-  }
-
-  const styles = {
-    approved: "bg-green-500 text-white",
-    pending: "bg-yellow-500 text-white",
-    "under-review": "bg-blue-500 text-white",
-    rejected: "bg-red-500 text-white",
-    submitted: "bg-blue-400 text-white",
+function StatusBadge({ status }) {
+  // Map the new 5-stage status system - only show actual claim status
+  const statusConfig = {
+    open: { label: "Open", style: "bg-blue-500 text-white", icon: <FileText className="h-3 w-3" /> },
+    validation_complete: { label: "Validation Complete", style: "bg-orange-500 text-white", icon: <Clock className="h-3 w-3" /> },
+    verified: { label: "Verified", style: "bg-purple-500 text-white", icon: <CheckCircle2 className="h-3 w-3" /> },
+    approved: { label: "Approved", style: "bg-green-500 text-white", icon: <CheckCircle2 className="h-3 w-3" /> },
+    denied: { label: "Denied", style: "bg-red-500 text-white", icon: <XCircle className="h-3 w-3" /> },
+    need_more_info: { label: "Need More Info", style: "bg-yellow-500 text-white", icon: <AlertCircle className="h-3 w-3" /> },
+    
+    // Legacy status mapping for backward compatibility
+    submitted: { label: "Open", style: "bg-blue-500 text-white", icon: <FileText className="h-3 w-3" /> },
+    pending: { label: "Validation Complete", style: "bg-orange-500 text-white", icon: <Clock className="h-3 w-3" /> },
+    "under-review": { label: "Verified", style: "bg-purple-500 text-white", icon: <CheckCircle2 className="h-3 w-3" /> },
+    rejected: { label: "Denied", style: "bg-red-500 text-white", icon: <XCircle className="h-3 w-3" /> },
   };
 
-  const labels = {
-    approved: "Approved",
-    pending: "Pending Review",
-    "under-review": "Under Review",
-    rejected: "Rejected",
-    submitted: "Submitted",
-  };
+  const config = statusConfig[status] || statusConfig.open;
 
   return (
-    <span
-      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${styles[displayStatus]}`}
-    >
-      {displayStatus === "approved" && <CheckCircle2 className="h-3 w-3" />}
-      {labels[displayStatus]}
+    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${config.style}`}>
+      {config.icon}
+      {config.label}
     </span>
   );
 }
@@ -51,7 +39,13 @@ export default function ClaimsDashboard() {
   const [claims, setClaims] = useState([]);
   const [stats, setStats] = useState({
     total: 0,
+    open: 0,
+    validation_complete: 0,
+    verified: 0,
     approved: 0,
+    denied: 0,
+    need_more_info: 0,
+    // Legacy support
     pending: 0,
     rejected: 0
   });
@@ -93,7 +87,13 @@ export default function ClaimsDashboard() {
       const statusDist = response.status_distribution || {};
       setStats({
         total: response.total_claims || 0,
+        open: statusDist.open || 0,
+        validation_complete: statusDist.validation_complete || 0,
+        verified: statusDist.verified || 0,
         approved: statusDist.approved || 0,
+        denied: statusDist.denied || 0,
+        need_more_info: statusDist.need_more_info || 0,
+        // Legacy support
         pending: statusDist.pending || statusDist.submitted || 0,
         rejected: statusDist.rejected || 0
       });
@@ -180,11 +180,11 @@ export default function ClaimsDashboard() {
           <Card className="border-border">
             <CardContent className="p-6">
               <div className="flex flex-col gap-2">
-                <p className="text-sm text-muted-foreground">Approved</p>
-                <p className="text-4xl font-bold text-green-600">{stats.approved}</p>
+                <p className="text-sm text-muted-foreground">Open Claims</p>
+                <p className="text-4xl font-bold text-blue-600">{stats.open || 0}</p>
                 <div className="flex items-center gap-2 text-sm text-muted-foreground mt-2">
-                  <CheckCircle2 className="h-4 w-4" />
-                  <span>Processed successfully</span>
+                  <FileText className="h-4 w-4" />
+                  <span>New submissions</span>
                 </div>
               </div>
             </CardContent>
@@ -193,11 +193,13 @@ export default function ClaimsDashboard() {
           <Card className="border-border">
             <CardContent className="p-6">
               <div className="flex flex-col gap-2">
-                <p className="text-sm text-muted-foreground">Pending Review</p>
-                <p className="text-4xl font-bold text-yellow-600">{stats.pending}</p>
+                <p className="text-sm text-muted-foreground">In Progress</p>
+                <p className="text-4xl font-bold text-orange-600">
+                  {(stats.validation_complete || 0) + (stats.verified || 0) + (stats.need_more_info || 0)}
+                </p>
                 <div className="flex items-center gap-2 text-sm text-muted-foreground mt-2">
                   <Clock className="h-4 w-4" />
-                  <span>Awaiting action</span>
+                  <span>Under review</span>
                 </div>
               </div>
             </CardContent>
@@ -206,11 +208,13 @@ export default function ClaimsDashboard() {
           <Card className="border-border">
             <CardContent className="p-6">
               <div className="flex flex-col gap-2">
-                <p className="text-sm text-muted-foreground">Rejected</p>
-                <p className="text-4xl font-bold text-red-600">{stats.rejected}</p>
+                <p className="text-sm text-muted-foreground">Completed</p>
+                <p className="text-4xl font-bold text-green-600">
+                  {(stats.approved || 0) + (stats.denied || 0)}
+                </p>
                 <div className="flex items-center gap-2 text-sm text-muted-foreground mt-2">
-                  <XCircle className="h-4 w-4" />
-                  <span>Requires attention</span>
+                  <CheckCircle2 className="h-4 w-4" />
+                  <span>Final decisions</span>
                 </div>
               </div>
             </CardContent>
@@ -236,10 +240,12 @@ export default function ClaimsDashboard() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Statuses</SelectItem>
+                  <SelectItem value="open">Open</SelectItem>
+                  <SelectItem value="validation_complete">Validation Complete</SelectItem>
+                  <SelectItem value="verified">Verified</SelectItem>
                   <SelectItem value="approved">Approved</SelectItem>
-                  <SelectItem value="pending">Pending</SelectItem>
-                  <SelectItem value="under-review">Under Review</SelectItem>
-                  <SelectItem value="rejected">Rejected</SelectItem>
+                  <SelectItem value="denied">Denied</SelectItem>
+                  <SelectItem value="need_more_info">Need More Info</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -262,7 +268,7 @@ export default function ClaimsDashboard() {
                     <div className="flex-1">
                       <div className="flex items-center gap-3 mb-2">
                         <h3 className="text-xl font-semibold text-foreground">{claim.patient_name}</h3>
-                        <StatusBadge status={claim.status} recommendation={claim.recommendation} />
+                        <StatusBadge status={claim.status} />
                         {claim.is_valid === false && (
                           <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800">
                             <AlertCircle className="h-3 w-3" />

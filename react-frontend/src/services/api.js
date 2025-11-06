@@ -96,6 +96,32 @@ export const claimsAPI = {
     return response;
   },
 
+  // Status Management APIs
+  updateClaimStatus: async (claimId, statusData) => {
+    const response = await api.put(`/claims/${claimId}/status`, statusData);
+    return response.data;
+  },
+
+  // Process claim with AI
+  processClaimWithAI: async (claimId) => {
+    const response = await api.post(`/claims/${claimId}/ai-process`, {}, {
+      timeout: 120000, // 2 minutes for AI processing
+    });
+    return response.data;
+  },
+
+  // Get status transitions history
+  getStatusTransitions: async (claimId) => {
+    const response = await api.get(`/claims/${claimId}/transitions`);
+    return response.data;
+  },
+
+  // Get claims by status
+  getClaimsByStatus: async (status) => {
+    const response = await api.get(`/claims/by-status/${status}`);
+    return response.data;
+  },
+
   // Health check
   healthCheck: async () => {
     const response = await api.get('/status');
