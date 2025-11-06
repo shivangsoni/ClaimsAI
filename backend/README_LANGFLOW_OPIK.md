@@ -1,14 +1,14 @@
-# LangFlow + Opik Integration for ClaimsAI
+# LangGraph + Opik Integration for ClaimsAI
 
-This document explains the new LangFlow and Opik integration for the ClaimsAI document processing system.
+This document explains the new LangGraph and Opik integration for the ClaimsAI document processing system.
 
 ## Overview
 
 The ClaimsAI system has been upgraded to use:
 
-- **LangFlow**: Visual workflow builder for AI applications with fallback to LangChain
-- **Opik**: Telemetry and observability platform for AI applications
-- **GPT-5**: Latest OpenAI model for superior claims analysis accuracy and performance
+- **LangGraph**: Local state-machine workflow builder for reliable AI applications
+- **Opik**: Telemetry and observability platform for AI applications  
+- **GPT-4o-mini**: Consistent OpenAI model with temperature 0.1 for reliable analysis
 
 ## Architecture
 

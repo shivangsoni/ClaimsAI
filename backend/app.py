@@ -44,23 +44,23 @@ def api_status():
 
 @app.route('/api/integration/status', methods=['GET'])
 def integration_status():
-    """Check LangFlow and Opik integration status"""
+    """Check LangGraph and Opik integration status"""
     try:
         from utils.document_processor import DocumentProcessor
         
         processor = DocumentProcessor()
         
-        # Check LangFlow health
-        langflow_health = processor.get_langflow_health()
+        # Check LangGraph status
+        langgraph_status = processor.get_langgraph_status()
         
         # Check Opik status
         opik_status = processor.get_opik_status()
         
         return jsonify({
-            'langflow': {
-                'status': langflow_health['status'],
-                'url': langflow_health['url'],
-                'available': langflow_health['status'] in ['healthy', 'reachable']
+            'langgraph': {
+                'available': langgraph_status['available'],
+                'workflow_initialized': langgraph_status['workflow_initialized'],
+                'processing_method': langgraph_status['processing_method']
             },
             'opik': {
                 'available': opik_status['available'],
@@ -68,7 +68,7 @@ def integration_status():
                 'project_name': opik_status.get('project_name')
             },
             'processing': {
-                'method': 'langflow_with_langchain_fallback',
+                'method': langgraph_status['processing_method'],
                 'ai_model': 'gpt-4o-mini',
                 'telemetry_enabled': opik_status['available'] and opik_status['client_initialized']
             }
@@ -77,7 +77,7 @@ def integration_status():
     except Exception as e:
         return jsonify({
             'error': str(e),
-            'langflow': {'status': 'unknown'},
+            'langgraph': {'available': False, 'workflow_initialized': False},
             'opik': {'available': False},
             'processing': {'method': 'error'}
         }), 500

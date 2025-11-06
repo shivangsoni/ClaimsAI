@@ -10,21 +10,53 @@ import PyPDF2
 import io
 from dotenv import load_dotenv
 
-# LangFlow and LangChain imports
-import requests
-from langchain_openai import ChatOpenAI
-from langchain_core.prompts import PromptTemplate
-from langchain_core.output_parsers import JsonOutputParser
-from langchain_core.runnables import RunnablePassthrough
+# LangGraph and LangChain imports
+try:
+    from langgraph.graph import StateGraph, END
+    from langchain_openai import ChatOpenAI
+    from langchain_core.prompts import PromptTemplate
+    from langchain_core.output_parsers import JsonOutputParser
+    from langchain_core.runnables import RunnablePassthrough
+    from typing_extensions import TypedDict
+    import functools
+    LANGGRAPH_AVAILABLE = True
+    print("✅ LangGraph is available")
+except ImportError as e:
+    LANGGRAPH_AVAILABLE = False
+    print(f"⚠️  LangGraph not available: {e}")
+    # Fallback imports for basic LangChain
+    try:
+        from langchain_openai import ChatOpenAI
+        from langchain_core.prompts import PromptTemplate
+        from langchain_core.output_parsers import JsonOutputParser
+        from langchain_core.runnables import RunnablePassthrough
+        print("✅ LangChain fallback available")
+    except ImportError:
+        print("❌ No LangChain available")
 
 # Opik telemetry imports
 try:
     import opik
     from opik import track, Opik
     OPIK_AVAILABLE = True
+    print("✅ Opik is available")
 except ImportError:
     OPIK_AVAILABLE = False
     print("Opik not available. Install with: pip install opik")
+
+# Create safe decorator for Opik tracing
+def safe_opik_track(name):
+    """Decorator that safely applies Opik tracking when available"""
+    def decorator(func):
+        if OPIK_AVAILABLE:
+            try:
+                return track(name=name)(func)
+            except Exception as e:
+                print(f"⚠️  Opik decorator failed for {name}: {e}")
+                return func
+        else:
+            return func
+    return decorator
 
 # Load prompts
 from .prompt import (
@@ -38,12 +70,29 @@ from .prompt import (
     OPIK_TRACE_CONFIG
 )
 
+# LangGraph State Definition
+if LANGGRAPH_AVAILABLE:
+    class ClaimsAnalysisState(TypedDict):
+        """State for the claims analysis workflow"""
+        document_text: str
+        claim_type: str
+        reference_document: str
+        analysis_result: Optional[Dict[str, Any]]
+        error_message: Optional[str]
+        processing_method: str
+
 # Load environment variables from .env file
 load_dotenv()
 
 class DocumentProcessor:
     """
-    Process claim documents using LangFlow and OpenAI GPT-4 with Opik telemetry
+    Process claim documents using LangGraph workflows and OpenAI GPT-4o-mini with Opik telemetry
+    
+    Features:
+    - LangGraph state-machine workflows for reliable processing
+    - Opik telemetry for observability and tracing
+    - Graceful fallback to direct LangChain when needed
+    - GPT-4o-mini with temperature 0.1 for consistent results
     """
     
     def __init__(self):
@@ -52,16 +101,37 @@ class DocumentProcessor:
         if not self.api_key:
             raise ValueError("OpenAI API key not found. Please set 'openai.api_key' in your .env file")
         
-        # LangFlow configuration
-        self.langflow_url = os.getenv('LANGFLOW_URL', 'http://localhost:7860')
-        self.langflow_flow_id = os.getenv('LANGFLOW_FLOW_ID', 'claims-analysis-flow')
+        # LangGraph configuration
+        self.use_langgraph = LANGGRAPH_AVAILABLE
         
         # Initialize Opik client if available
         if OPIK_AVAILABLE:
             try:
-                self.opik_client = Opik(project_name=OPIK_TRACE_CONFIG["project_name"])
+                # Get Opik configuration from environment
+                opik_api_key = os.getenv('OPIK_API_KEY')
+                opik_workspace = os.getenv('OPIK_WORKSPACE', 'default')
+                opik_project = os.getenv('OPIK_PROJECT_NAME', OPIK_TRACE_CONFIG["project_name"])
+                
+                # Configure Opik with environment variables
+                if opik_api_key:
+                    self.opik_client = Opik(
+                        api_key=opik_api_key,
+                        project_name=opik_project,
+                        workspace=opik_workspace
+                    )
+                    print(f"✅ Opik client initialized with API key")
+                    print(f"   Project: {opik_project}")
+                    print(f"   Workspace: {opik_workspace}")
+                else:
+                    # Try without API key for local development
+                    self.opik_client = Opik(project_name=opik_project)
+                    print(f"✅ Opik client initialized without API key (local mode)")
+                    print(f"   Project: {opik_project}")
+                    
             except Exception as e:
-                print(f"Opik initialization failed: {e}")
+                print(f"⚠️  Opik initialization issue: {e}")
+                print(f"   This is normal if no API key is configured")
+                print(f"   Opik telemetry will be disabled for this session")
                 self.opik_client = None
         else:
             self.opik_client = None
@@ -83,6 +153,12 @@ class DocumentProcessor:
             template=CLAIMS_ANALYSIS_PROMPT_TEMPLATE,
             input_variables=["document_text", "claim_type", "reference_document"]
         )
+        
+        # Initialize LangGraph workflow
+        if self.use_langgraph:
+            self.analysis_workflow = self._create_langgraph_workflow()
+        else:
+            self.analysis_workflow = None
         
         # Reference claim document examples for comparison
         self.reference_documents = {
@@ -237,7 +313,89 @@ CLINICAL INFORMATION:
         except Exception as e:
             raise Exception(f"Text file reading failed: {str(e)}")
     
-    @track(name="analyze_claim_document") if OPIK_AVAILABLE else lambda func: func
+    def _create_langgraph_workflow(self):
+        """Create LangGraph workflow for claims analysis"""
+        if not LANGGRAPH_AVAILABLE:
+            return None
+            
+        def analyze_document(state: ClaimsAnalysisState) -> ClaimsAnalysisState:
+            """LangGraph node: Analyze the document using LLM"""
+            try:
+                # Create the analysis chain
+                chain = (
+                    {
+                        "document_text": lambda x: state["document_text"],
+                        "claim_type": lambda x: state["claim_type"],
+                        "reference_document": lambda x: state["reference_document"]
+                    }
+                    | self.prompt_template
+                    | self.llm
+                    | self.output_parser
+                )
+                
+                # Run the analysis
+                result = chain.invoke({})
+                
+                # Ensure result is a dictionary
+                if isinstance(result, str):
+                    result = self._parse_analysis_result(result)
+                
+                result["processing_method"] = "langgraph"
+                
+                # Update state
+                state["analysis_result"] = result
+                state["processing_method"] = "langgraph"
+                
+                return state
+                
+            except Exception as e:
+                state["error_message"] = str(e)
+                state["processing_method"] = "langgraph_error"
+                return state
+        
+        def handle_error(state: ClaimsAnalysisState) -> ClaimsAnalysisState:
+            """LangGraph node: Handle errors and create fallback response"""
+            error_result = ERROR_RESPONSE_TEMPLATES["system_error"].copy()
+            error_result["validation_errors"][0]["error"] = state.get("error_message", "Unknown error")
+            error_result["processing_notes"] = f"LangGraph error: {state.get('error_message', 'Unknown error')}"
+            error_result["processing_method"] = "error_fallback"
+            
+            state["analysis_result"] = error_result
+            return state
+        
+        def should_handle_error(state: ClaimsAnalysisState) -> str:
+            """Conditional edge: Check if we need error handling"""
+            if state.get("error_message"):
+                return "error"
+            return "success"
+        
+        # Build the workflow
+        workflow = StateGraph(ClaimsAnalysisState)
+        
+        # Add nodes
+        workflow.add_node("analyze", analyze_document)
+        workflow.add_node("handle_error", handle_error)
+        
+        # Set entry point
+        workflow.set_entry_point("analyze")
+        
+        # Add conditional edge
+        workflow.add_conditional_edges(
+            "analyze",
+            should_handle_error,
+            {
+                "success": END,
+                "error": "handle_error"
+            }
+        )
+        
+        # Add edge from error handler to end
+        workflow.add_edge("handle_error", END)
+        
+        # Compile the workflow
+        return workflow.compile()
+    
+    @safe_opik_track("analyze_claim_document")
     def analyze_claim_document(self, document_text: str, claim_type: str = "medical_claim") -> Dict[str, Any]:
         """
         Analyze claim document using LangFlow with Opik telemetry
@@ -264,11 +422,11 @@ CLINICAL INFORMATION:
             
             reference_doc = self.reference_documents.get(claim_type, self.reference_documents["medical_claim"])
             
-            # Try LangFlow first, fallback to direct LangChain
-            result = self._analyze_with_langflow(document_text, claim_type, reference_doc, trace_id)
-            
-            if not result or result.get("overall_status") == "ERROR":
-                print("LangFlow failed, using fallback LangChain approach...")
+            # Use LangGraph workflow if available, otherwise fallback to LangChain
+            if self.use_langgraph and self.analysis_workflow:
+                result = self._analyze_with_langgraph(document_text, claim_type, reference_doc, trace_id)
+            else:
+                print("Using direct LangChain approach...")
                 result = self._analyze_with_langchain(document_text, claim_type, reference_doc, trace_id)
             
             # Log completion to Opik
@@ -292,57 +450,37 @@ CLINICAL INFORMATION:
             
             return result
     
-    def _analyze_with_langflow(self, document_text: str, claim_type: str, reference_doc: str, trace_id: str) -> Dict[str, Any]:
+    def _analyze_with_langgraph(self, document_text: str, claim_type: str, reference_doc: str, trace_id: str) -> Dict[str, Any]:
         """
-        Analyze document using LangFlow API
+        Analyze document using LangGraph workflow
         """
         try:
-            # LangFlow API endpoint
-            url = f"{self.langflow_url}/api/v1/run/{self.langflow_flow_id}"
+            if not self.analysis_workflow:
+                raise Exception("LangGraph workflow not available")
             
-            # Prepare the payload
-            payload = {
-                "input_value": document_text,
-                "input_type": "chat",
-                "output_type": "chat",
-                "tweaks": {
-                    "ChatOpenAI-1": {
-                        "model": "gpt-4o-mini",
-                        "temperature": 0.1,
-                        "max_tokens": 2000,
-                        "api_key": self.api_key
-                    },
-                    "PromptTemplate-1": {
-                        "template": CLAIMS_ANALYSIS_PROMPT_TEMPLATE,
-                        "document_text": document_text,
-                        "claim_type": claim_type,
-                        "reference_document": reference_doc
-                    }
-                }
+            # Create initial state
+            initial_state = {
+                "document_text": document_text,
+                "claim_type": claim_type,
+                "reference_document": reference_doc,
+                "analysis_result": None,
+                "error_message": None,
+                "processing_method": "langgraph"
             }
             
-            headers = {
-                "Content-Type": "application/json",
-                "x-trace-id": trace_id
-            }
+            # Run the workflow
+            final_state = self.analysis_workflow.invoke(initial_state)
             
-            # Make the API call
-            response = requests.post(url, json=payload, headers=headers, timeout=60)
-            
-            if response.status_code == 200:
-                langflow_result = response.json()
-                
-                # Extract the result from LangFlow response
-                if "outputs" in langflow_result:
-                    output_text = langflow_result["outputs"][0]["outputs"][0]["results"]["message"]["text"]
-                    return self._parse_analysis_result(output_text)
-                else:
-                    raise Exception("Invalid LangFlow response format")
+            # Extract result
+            result = final_state.get("analysis_result")
+            if result:
+                result["trace_id"] = trace_id
+                return result
             else:
-                raise Exception(f"LangFlow API error: {response.status_code} - {response.text}")
+                raise Exception("No result from LangGraph workflow")
                 
         except Exception as e:
-            print(f"LangFlow analysis failed: {e}")
+            print(f"LangGraph analysis failed: {e}")
             return None
     
     def _analyze_with_langchain(self, document_text: str, claim_type: str, reference_doc: str, trace_id: str) -> Dict[str, Any]:
@@ -412,54 +550,96 @@ CLINICAL INFORMATION:
     
     def _log_opik_start(self, trace_id: str, document_text: str, claim_type: str):
         """Log analysis start to Opik"""
+        if not self.opik_client:
+            return
+            
         try:
-            self.opik_client.log_traces([{
-                "id": trace_id,
-                "name": OPIK_TRACE_CONFIG["trace_name"],
-                "input": {
+            # Create a trace using the modern Opik API
+            self.current_trace = self.opik_client.trace(
+                name=OPIK_TRACE_CONFIG["trace_name"],
+                input={
                     "document_length": len(document_text),
                     "claim_type": claim_type,
                     "document_preview": document_text[:200] + "..." if len(document_text) > 200 else document_text
                 },
-                "tags": OPIK_TRACE_CONFIG["tags"],
-                "start_time": time.time()
-            }])
+                tags=OPIK_TRACE_CONFIG["tags"]
+            )
+            print(f"📊 Opik trace started: {trace_id}")
         except Exception as e:
-            print(f"Opik logging failed: {e}")
+            print(f"⚠️  Opik start logging failed: {e}")
+            self.current_trace = None
     
     def _log_opik_completion(self, trace_id: str, result: Dict[str, Any], duration: float):
         """Log successful completion to Opik"""
+        if not self.opik_client or not hasattr(self, 'current_trace') or not self.current_trace:
+            return
+            
         try:
-            self.opik_client.log_traces([{
-                "id": trace_id,
-                "output": {
+            # Update the trace with output and metrics
+            self.current_trace.update(
+                output={
                     "overall_status": result.get("overall_status"),
                     "confidence_level": result.get("confidence_level"),
-                    "completeness_score": result.get("completeness_score")
+                    "completeness_score": result.get("completeness_score"),
+                    "processing_method": result.get("processing_method", "unknown")
                 },
-                "end_time": time.time(),
-                "duration": duration,
-                "feedback_scores": [
-                    {"name": "confidence", "value": result.get("confidence_level", 0) / 100.0},
-                    {"name": "completeness", "value": result.get("completeness_score", 0) / 100.0}
-                ]
-            }])
+                metadata={
+                    "duration_seconds": duration,
+                    "model": "gpt-4o-mini",
+                    "temperature": 0.1
+                }
+            )
+            
+            # Log feedback scores
+            try:
+                if result.get("confidence_level"):
+                    self.current_trace.log_feedback_score(
+                        name="confidence",
+                        value=result.get("confidence_level", 0) / 100.0
+                    )
+                if result.get("completeness_score"):
+                    self.current_trace.log_feedback_score(
+                        name="completeness", 
+                        value=result.get("completeness_score", 0) / 100.0
+                    )
+            except Exception as score_err:
+                print(f"⚠️  Opik score logging failed: {score_err}")
+                
+            print(f"📊 Opik trace completed: {trace_id} ({duration:.2f}s)")
+            
         except Exception as e:
-            print(f"Opik completion logging failed: {e}")
+            print(f"⚠️  Opik completion logging failed: {e}")
     
     def _log_opik_error(self, trace_id: str, error_message: str, duration: float):
         """Log error to Opik"""
+        if not self.opik_client or not hasattr(self, 'current_trace') or not self.current_trace:
+            return
+            
         try:
-            self.opik_client.log_traces([{
-                "id": trace_id,
-                "end_time": time.time(),
-                "duration": duration,
-                "metadata": {"error": error_message, "status": "failed"}
-            }])
+            # Update trace with error information
+            self.current_trace.update(
+                output={
+                    "error": error_message,
+                    "status": "failed"
+                },
+                metadata={
+                    "duration_seconds": duration,
+                    "error_type": "processing_error"
+                }
+            )
+            
+            # Log error as negative feedback score
+            try:
+                self.current_trace.log_feedback_score(name="success", value=0.0)
+            except Exception as score_err:
+                print(f"⚠️  Opik error score logging failed: {score_err}")
+                
+            print(f"📊 Opik error logged: {trace_id} - {error_message}")
+            
         except Exception as e:
-            print(f"Opik error logging failed: {e}")
+            print(f"⚠️  Opik error logging failed: {e}")
     
-    @track(name="get_improvement_suggestions") if OPIK_AVAILABLE else lambda func: func
+    @safe_opik_track("get_improvement_suggestions")
     def get_improvement_suggestions(self, analysis_result: Dict[str, Any]) -> Dict[str, Any]:
         """
         Generate detailed improvement suggestions based on analysis using LangFlow/LangChain
@@ -538,7 +718,7 @@ CLINICAL INFORMATION:
             print(f"AI suggestion generation error: {e}")
             return []
 
-    @track(name="compare_with_approved_claims") if OPIK_AVAILABLE else lambda func: func
+    @safe_opik_track("compare_with_approved_claims")
     def compare_with_approved_claims(self, document_text: str) -> Dict[str, Any]:
         """
         Compare document with multiple approved claim examples using LangFlow/LangChain
@@ -609,21 +789,13 @@ CLINICAL INFORMATION:
             print(f"Detailed comparison error: {e}")
             return {"error": f"Failed to generate detailed comparison: {str(e)}"}
     
-    def get_langflow_health(self) -> Dict[str, Any]:
-        """Check LangFlow service health"""
-        try:
-            response = requests.get(f"{self.langflow_url}/health", timeout=5)
-            return {
-                "status": "healthy" if response.status_code == 200 else "unhealthy",
-                "url": self.langflow_url,
-                "response_code": response.status_code
-            }
-        except Exception as e:
-            return {
-                "status": "unreachable",
-                "url": self.langflow_url,
-                "error": str(e)
-            }
+    def get_langgraph_status(self) -> Dict[str, Any]:
+        """Check LangGraph workflow status"""
+        return {
+            "available": LANGGRAPH_AVAILABLE,
+            "workflow_initialized": self.analysis_workflow is not None,
+            "processing_method": "langgraph" if self.use_langgraph else "langchain_direct"
+        }
     
     def get_opik_status(self) -> Dict[str, Any]:
         """Get Opik telemetry status"""
