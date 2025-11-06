@@ -2,7 +2,7 @@ import requests
 import json
 
 def create_simple_claim():
-    url = 'http://localhost:5000/api/claims/submit'
+    url = 'http://localhost:8000/api/claims/submit'
     
     # Create a simple claim data
     claim_data = {

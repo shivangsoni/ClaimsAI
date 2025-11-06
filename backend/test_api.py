@@ -5,7 +5,7 @@ Test the Claims API endpoints
 import requests
 import json
 
-base_url = "http://localhost:5000/api"
+base_url = "http://localhost:8000/api"
 
 def test_api():
     print("🧪 Testing ClaimsAI Backend API")

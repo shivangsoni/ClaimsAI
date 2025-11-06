@@ -3,7 +3,7 @@ import json
 
 def test_api_response():
     claim_id = "DOC_20251103_203114"
-    url = f'http://localhost:5000/api/claims/details/{claim_id}'
+    url = f'http://localhost:8000/api/claims/details/{claim_id}'
     
     try:
         response = requests.get(url, timeout=10)

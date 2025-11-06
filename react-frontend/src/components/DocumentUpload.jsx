@@ -152,7 +152,7 @@ const DocumentUpload = ({ onClaimDataUpdate, onValidationUpdate, apiStatus }) =>
               <div className="flex items-center gap-2 text-yellow-800">
                 <AlertTriangle className="h-4 w-4" />
                 <span className="text-sm">
-                  Backend API is not responding. Please ensure the Python backend is running on http://localhost:5000
+                  Backend API is not responding. Please ensure the Python backend is running on http://localhost:8000
                 </span>
               </div>
             </CardContent>

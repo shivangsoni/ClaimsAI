@@ -3,7 +3,7 @@ import json
 
 # Test claim details API
 claim_id = "DOC_20251103_200313"
-url = f"http://localhost:5000/api/claims/details/{claim_id}"
+url = f"http://localhost:8000/api/claims/details/{claim_id}"
 
 print(f"Testing claim details for: {claim_id}")
 

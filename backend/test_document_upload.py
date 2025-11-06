@@ -7,7 +7,7 @@ import json
 def test_document_upload():
     """Test document upload with GPT-4 analysis"""
     
-    url = 'http://localhost:5000/api/claims/upload'
+    url = 'http://localhost:8000/api/claims/upload'
     test_file_path = '../test-claims/valid_claim_example.pdf'
     
     if not os.path.exists(test_file_path):
@@ -51,7 +51,7 @@ def test_document_upload():
                 
                 # Test database integration
                 print(f'\n🗄️ Testing database integration...')
-                list_response = requests.get(f'http://localhost:5000/api/claims/details/{claim_id}')
+                list_response = requests.get(f'http://localhost:8000/api/claims/details/{claim_id}')
                 if list_response.status_code == 200:
                     claim_details = list_response.json()
                     recommendations = claim_details.get('recommendations', [])

@@ -3,7 +3,7 @@ import os
 
 # Test document upload to trigger GPT-4 analysis
 def test_document_upload():
-    url = 'http://localhost:5000/api/claims/upload'
+    url = 'http://localhost:8000/api/claims/upload'
     
     # Check if test file exists
     test_file_path = r'c:\Users\shison\source\repos\ClaimsAI\ClaimsAI\test-claims\valid_claim_example.txt'

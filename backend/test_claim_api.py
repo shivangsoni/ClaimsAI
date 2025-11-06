@@ -2,7 +2,7 @@ import requests
 import json
 
 def test_claim_details(claim_id):
-    url = f'http://localhost:5000/api/claims/details/{claim_id}'
+    url = f'http://localhost:8000/api/claims/details/{claim_id}'
     
     try:
         print(f"Getting details for claim: {claim_id}")
