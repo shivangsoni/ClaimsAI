@@ -52,7 +52,7 @@ sleep 5
 echo
 echo "3. Starting React Frontend..."
 echo "Frontend will open in your browser at http://localhost:3000"
-echo "Backend API is running at http://localhost:5000"
+echo "Backend API is running at http://localhost:8000"
 echo
 cd ../react-frontend
 npm start

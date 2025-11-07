@@ -8,7 +8,7 @@ import json
 import time
 from datetime import datetime
 
-BASE_URL = "http://localhost:5000/api"
+BASE_URL = "http://localhost:8000/api"
 
 def test_status_workflow():
     """
@@ -148,7 +148,7 @@ def test_ai_suggestions():
 
 if __name__ == "__main__":
     print("🏥 ClaimsAI - 5-Stage Status Workflow Test")
-    print("Make sure the backend server is running on http://localhost:5000")
+    print("Make sure the backend server is running on http://localhost:8000")
     print()
     
     # Test basic connectivity
