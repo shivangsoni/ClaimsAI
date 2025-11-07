@@ -116,7 +116,7 @@ class RecommendationEngine:
             return 75.0  # Medium-low risk
         elif amount <= 10000:
             return 60.0  # Medium risk
-        elif amount <= 50000:
+        elif amount <= 80000:
             return 40.0  # High risk
         else:
             return 20.0  # Very high risk

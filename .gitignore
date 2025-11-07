@@ -124,3 +124,4 @@ yarn.lock
 .mypy_cache/
 .dmypy.json
 dmypy.json
+!react-frontend/src/lib

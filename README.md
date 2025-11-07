@@ -190,7 +190,7 @@ Update React components in `react-frontend/src/components/` for interface change
 - **Required Variables**: Ensure `OPENAI_API_KEY` is set (Opik variables are optional)
 
 ### Runtime Issues  
-- **CORS Errors**: Check that backend is running on port 5000
+- **CORS Errors**: Check that backend is running on port 8000
 - **File Upload Issues**: Verify uploads directory exists and has write permissions
 - **GPT-4o-mini Errors**: Ensure OpenAI API key is set and has sufficient credits
 - **React Build Errors**: Delete node_modules and run `npm install` again
@@ -293,7 +293,7 @@ This project is for educational and development purposes. Review license require
 4. **Documentation**: Refer to this README for setup and troubleshooting
 
 ### Common Issues
-- **Port Conflicts**: Change ports in configuration if 5000 (backend) or 3000 (frontend) are in use
+- **Port Conflicts**: Change ports in configuration if 8000 (backend) or 3000 (frontend) are in use
 - **Permission Errors**: Ensure write permissions for uploads/ directory
 - **Memory Issues**: Monitor memory usage during large file processing
 - **API Rate Limits**: Implement backoff strategies for OpenAI API calls

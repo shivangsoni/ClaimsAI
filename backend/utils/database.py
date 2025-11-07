@@ -176,13 +176,13 @@ class DatabaseManager:
             sample_policies = [
                 (
                     'POL12345678', 'John Doe', 'comprehensive',
-                    '2023-01-01', '2024-12-31', 500.00, 50000.00,
+                    '2023-01-01', '2024-12-31', 500.00, 80000.00,
                     '["emergency", "surgery", "diagnostics", "pharmacy"]',
                     '["cosmetic", "experimental"]', 0.20
                 ),
                 (
                     'POL87654321', 'Jane Smith', 'basic',
-                    '2023-06-01', '2024-05-31', 1000.00, 25000.00,
+                    '2023-06-01', '2024-05-31', 1000.00, 28000.00,
                     '["emergency", "diagnostics"]',
                     '["surgery", "cosmetic", "experimental"]', 0.30
                 ),

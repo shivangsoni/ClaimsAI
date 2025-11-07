@@ -105,7 +105,7 @@ export default function NewClaimForm() {
           const file = files[i];
           try {
             // Use the existing upload endpoint for existing claims
-            const uploadResponse = await fetch(`http://localhost:5000/api/claims/${claimId}/upload`, {
+            const uploadResponse = await fetch(`http://localhost:8000/api/claims/${claimId}/upload`, {
               method: 'POST',
               body: (() => {
                 const formData = new FormData();
