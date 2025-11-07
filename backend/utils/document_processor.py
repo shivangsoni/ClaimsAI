@@ -34,7 +34,7 @@ except ImportError as e:
     except ImportError:
         print("❌ No LangChain available")
 
-# Opik telemetry imports
+# Opik telemetry imports - following LangGraph notebook pattern
 try:
     import opik
     from opik import track, Opik
@@ -42,16 +42,27 @@ try:
     OPIK_AVAILABLE = True
     OPIK_CALLBACK_AVAILABLE = True
     print("✅ Opik is available with OpikTracer callback support")
+    
+    # Initialize global Opik client (matching notebook pattern)
+    try:
+        OPIK_CLIENT = Opik()
+        print(f"✅ Global Opik client initialized")
+    except Exception as e:
+        print(f"⚠️  Global Opik client initialization failed: {e}")
+        OPIK_CLIENT = None
+        
 except ImportError:
     try:
         import opik
         from opik import track, Opik
         OPIK_AVAILABLE = True
         OPIK_CALLBACK_AVAILABLE = False
+        OPIK_CLIENT = None
         print("✅ Opik is available but no callback handler")
     except ImportError:
         OPIK_AVAILABLE = False
         OPIK_CALLBACK_AVAILABLE = False
+        OPIK_CLIENT = None
         print("Opik not available. Install with: pip install opik")
 
 # Create safe decorator for Opik tracing
@@ -114,43 +125,14 @@ class DocumentProcessor:
         # LangGraph configuration
         self.use_langgraph = LANGGRAPH_AVAILABLE
         
-        # Initialize Opik client if available
-        if OPIK_AVAILABLE:
-            try:
-                # Get Opik configuration from environment
-                opik_api_key = os.getenv('OPIK_API_KEY')
-                opik_workspace = os.getenv('OPIK_WORKSPACE', 'default')
-                opik_project = os.getenv('OPIK_PROJECT_NAME', OPIK_TRACE_CONFIG["project_name"])
-                
-                # Configure Opik with environment variables
-                if opik_api_key:
-                    self.opik_client = Opik(
-                        api_key=opik_api_key,
-                        project_name=opik_project,
-                        workspace=opik_workspace
-                    )
-                    print(f"✅ Opik client initialized with API key")
-                    print(f"   Project: {opik_project}")
-                    print(f"   Workspace: {opik_workspace}")
-                    if OPIK_CALLBACK_AVAILABLE:
-                        print(f"   Callback support: ✅ Available for invoke() tracing")
-                    else:
-                        print(f"   Callback support: ⚠️  Not available")
-                else:
-                    # Try without API key for local development
-                    self.opik_client = Opik(project_name=opik_project)
-                    print(f"✅ Opik client initialized without API key (local mode)")
-                    print(f"   Project: {opik_project}")
-                    if OPIK_CALLBACK_AVAILABLE:
-                        print(f"   Callback support: ✅ Available for invoke() tracing")
-                    else:
-                        print(f"   Callback support: ⚠️  Not available")
-                    
-            except Exception as e:
-                print(f"⚠️  Opik initialization issue: {e}")
-                print(f"   This is normal if no API key is configured")
-                print(f"   Opik telemetry will be disabled for this session")
-                self.opik_client = None
+        # Use global Opik client (following notebook pattern)
+        if OPIK_AVAILABLE and OPIK_CLIENT:
+            self.opik_client = OPIK_CLIENT
+            print(f"✅ Using global Opik client")
+            if OPIK_CALLBACK_AVAILABLE:
+                print(f"   Callback support: ✅ Available for invoke() tracing")
+            else:
+                print(f"   Callback support: ⚠️  Not available")
         else:
             self.opik_client = None
         
@@ -473,8 +455,16 @@ CLINICAL INFORMATION:
                 "processing_method": "langgraph"
             }
             
-            # Run the workflow
-            final_state = self.analysis_workflow.invoke(initial_state)
+            # Get Opik callbacks following notebook pattern
+            opik_callbacks = self._get_opik_callbacks()
+            
+            # Run the workflow with Opik tracing (matching notebook pattern)
+            if opik_callbacks:
+                final_state = self.analysis_workflow.invoke(initial_state, config={"callbacks": opik_callbacks})
+                print(f"🔍 LangGraph invoked with Opik tracing (trace_id: {trace_id})")
+            else:
+                final_state = self.analysis_workflow.invoke(initial_state)
+                print(f"🔍 LangGraph invoked without tracing (trace_id: {trace_id})")
             
             # Extract result
             result = final_state.get("analysis_result")
@@ -505,8 +495,16 @@ CLINICAL INFORMATION:
                 | self.output_parser
             )
             
-            # Run the chain
-            result = chain.invoke(document_text)
+            # Get Opik callbacks following notebook pattern
+            opik_callbacks = self._get_opik_callbacks()
+            
+            # Run the chain with Opik tracing (matching notebook pattern)
+            if opik_callbacks:
+                result = chain.invoke(document_text, config={"callbacks": opik_callbacks})
+                print(f"🔍 LangChain invoked with Opik tracing (trace_id: {trace_id})")
+            else:
+                result = chain.invoke(document_text)
+                print(f"🔍 LangChain invoked without tracing (trace_id: {trace_id})")
             
             # Ensure result is a dictionary
             if isinstance(result, str):
@@ -645,13 +643,24 @@ CLINICAL INFORMATION:
             print(f"⚠️  Opik error logging failed: {e}")
     
     def _get_opik_callbacks(self):
-        """Get Opik callback handlers for LangChain/LangGraph invoke calls"""
-        if not OPIK_CALLBACK_AVAILABLE or not self.opik_client:
+        """Get Opik callback handlers for LangChain/LangGraph invoke calls - following LangGraph notebook pattern"""
+        if not OPIK_CALLBACK_AVAILABLE or not OPIK_CLIENT:
+            print("🔍 Opik callbacks not available - client not initialized")
             return []
         
         try:
-            # Create OpikTracer for this session
-            tracer = OpikTracer()
+            # Create OpikTracer following the notebook pattern
+            # For LangGraph: OpikTracer(graph=graph.get_graph(xray=True))
+            # For general LangChain: OpikTracer()
+            if self.analysis_workflow and hasattr(self.analysis_workflow, 'get_graph'):
+                # LangGraph workflow - include graph structure
+                tracer = OpikTracer(graph=self.analysis_workflow.get_graph(xray=True))
+                print(f"✅ OpikTracer created with LangGraph structure - traces will be logged")
+            else:
+                # LangChain chain - basic tracer
+                tracer = OpikTracer()
+                print(f"✅ OpikTracer created for LangChain - traces will be logged")
+            
             return [tracer]
         except Exception as e:
             print(f"⚠️  Opik tracer creation failed: {e}")
