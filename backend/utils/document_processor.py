@@ -38,11 +38,21 @@ except ImportError as e:
 try:
     import opik
     from opik import track, Opik
+    from opik.integrations.langchain import OpikTracer
     OPIK_AVAILABLE = True
-    print("✅ Opik is available")
+    OPIK_CALLBACK_AVAILABLE = True
+    print("✅ Opik is available with OpikTracer callback support")
 except ImportError:
-    OPIK_AVAILABLE = False
-    print("Opik not available. Install with: pip install opik")
+    try:
+        import opik
+        from opik import track, Opik
+        OPIK_AVAILABLE = True
+        OPIK_CALLBACK_AVAILABLE = False
+        print("✅ Opik is available but no callback handler")
+    except ImportError:
+        OPIK_AVAILABLE = False
+        OPIK_CALLBACK_AVAILABLE = False
+        print("Opik not available. Install with: pip install opik")
 
 # Create safe decorator for Opik tracing
 def safe_opik_track(name):
@@ -122,11 +132,19 @@ class DocumentProcessor:
                     print(f"✅ Opik client initialized with API key")
                     print(f"   Project: {opik_project}")
                     print(f"   Workspace: {opik_workspace}")
+                    if OPIK_CALLBACK_AVAILABLE:
+                        print(f"   Callback support: ✅ Available for invoke() tracing")
+                    else:
+                        print(f"   Callback support: ⚠️  Not available")
                 else:
                     # Try without API key for local development
                     self.opik_client = Opik(project_name=opik_project)
                     print(f"✅ Opik client initialized without API key (local mode)")
                     print(f"   Project: {opik_project}")
+                    if OPIK_CALLBACK_AVAILABLE:
+                        print(f"   Callback support: ✅ Available for invoke() tracing")
+                    else:
+                        print(f"   Callback support: ⚠️  Not available")
                     
             except Exception as e:
                 print(f"⚠️  Opik initialization issue: {e}")
@@ -395,19 +413,14 @@ CLINICAL INFORMATION:
         # Compile the workflow
         return workflow.compile()
     
-    @safe_opik_track("analyze_claim_document")
     def analyze_claim_document(self, document_text: str, claim_type: str = "medical_claim") -> Dict[str, Any]:
         """
-        Analyze claim document using LangFlow with Opik telemetry
+        Analyze claim document using LangFlow
         """
         trace_id = str(uuid.uuid4())
         start_time = time.time()
         
         try:
-            # Log to Opik if available
-            if self.opik_client:
-                self._log_opik_start(trace_id, document_text, claim_type)
-            
             # Check if this is an OCR unavailable message
             if "[IMAGE UPLOAD DETECTED - OCR NOT AVAILABLE]" in document_text:
                 result = ERROR_RESPONSE_TEMPLATES["ocr_required"].copy()
@@ -429,10 +442,6 @@ CLINICAL INFORMATION:
                 print("Using direct LangChain approach...")
                 result = self._analyze_with_langchain(document_text, claim_type, reference_doc, trace_id)
             
-            # Log completion to Opik
-            if self.opik_client:
-                self._log_opik_completion(trace_id, result, time.time() - start_time)
-            
             return result
                 
         except Exception as e:
@@ -443,10 +452,6 @@ CLINICAL INFORMATION:
                 result = ERROR_RESPONSE_TEMPLATES["system_error"].copy()
                 result["validation_errors"][0]["error"] = str(e)
                 result["processing_notes"] = f"System error: {str(e)}"
-            
-            # Log error to Opik
-            if self.opik_client:
-                self._log_opik_error(trace_id, str(e), time.time() - start_time)
             
             return result
     
@@ -639,6 +644,19 @@ CLINICAL INFORMATION:
         except Exception as e:
             print(f"⚠️  Opik error logging failed: {e}")
     
+    def _get_opik_callbacks(self):
+        """Get Opik callback handlers for LangChain/LangGraph invoke calls"""
+        if not OPIK_CALLBACK_AVAILABLE or not self.opik_client:
+            return []
+        
+        try:
+            # Create OpikTracer for this session
+            tracer = OpikTracer()
+            return [tracer]
+        except Exception as e:
+            print(f"⚠️  Opik tracer creation failed: {e}")
+            return []
+    
     @safe_opik_track("get_improvement_suggestions")
     def get_improvement_suggestions(self, analysis_result: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -710,7 +728,18 @@ CLINICAL INFORMATION:
             )
             
             chain = suggestion_prompt | self.llm | JsonOutputParser()
-            ai_suggestions = chain.invoke({"analysis_results": json.dumps(analysis_result, indent=2)})
+            
+            # Get Opik callbacks for chain tracing
+            opik_callbacks = self._get_opik_callbacks()
+            
+            # Run the chain with Opik callbacks
+            if opik_callbacks:
+                ai_suggestions = chain.invoke(
+                    {"analysis_results": json.dumps(analysis_result, indent=2)},
+                    config={"callbacks": opik_callbacks}
+                )
+            else:
+                ai_suggestions = chain.invoke({"analysis_results": json.dumps(analysis_result, indent=2)})
             
             return ai_suggestions.get("suggestions", [])
             
@@ -778,10 +807,21 @@ CLINICAL INFORMATION:
             reference_claims_str = json.dumps(self.reference_documents, indent=2)
             
             chain = comparison_prompt | self.llm | JsonOutputParser()
-            comparison_analysis = chain.invoke({
-                "document_text": document_text,
-                "reference_claims": reference_claims_str
-            })
+            
+            # Get Opik callbacks for chain tracing
+            opik_callbacks = self._get_opik_callbacks()
+            
+            # Run the chain with Opik callbacks
+            if opik_callbacks:
+                comparison_analysis = chain.invoke({
+                    "document_text": document_text,
+                    "reference_claims": reference_claims_str
+                }, config={"callbacks": opik_callbacks})
+            else:
+                comparison_analysis = chain.invoke({
+                    "document_text": document_text,
+                    "reference_claims": reference_claims_str
+                })
             
             return comparison_analysis
             
@@ -801,6 +841,7 @@ CLINICAL INFORMATION:
         """Get Opik telemetry status"""
         return {
             "available": OPIK_AVAILABLE,
+            "callback_available": OPIK_CALLBACK_AVAILABLE,
             "client_initialized": self.opik_client is not None,
             "project_name": OPIK_TRACE_CONFIG["project_name"] if OPIK_AVAILABLE else None
         }

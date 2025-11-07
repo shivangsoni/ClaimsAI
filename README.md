@@ -12,10 +12,11 @@ An AI-powered insurance claims processing system that analyzes uploaded document
 - **Modern UI**: React-based responsive interface with Bootstrap styling
 - **Three-Phase Processing**: Validation → Eligibility → Recommendations
 
-### New: LangGraph + Opik Integration 🚀
+### New: LangGraph + Optimized Processing 🚀
 - **GPT-4o-mini Powered**: Reliable OpenAI model with temperature 0.1 for consistent results
 - **LangGraph Workflows**: Local state-machine workflows with no external dependencies
-- **Observability**: Opik telemetry for real-time monitoring and performance tracking
+- **Optimized Core Processing**: Main claim document analysis runs without tracing overhead for maximum performance
+- **Optional Opik Tracing**: Available for AI suggestions and comparison analysis when needed
 - **Enhanced Reliability**: Local processing eliminates connection failures
 - **Better Prompts**: Modular prompt system with specialized claim analysis
 - **Improved Performance**: 30% faster processing with local workflows (11s average)
@@ -51,11 +52,13 @@ pip install -r requirements.txt
 python test_langgraph_integration.py
 ```
 
-**What you get with LangGraph + Opik:**
+**What you get with LangGraph + Optimized Processing:**
 - Local AI workflow processing (no external services)
-- Real-time performance monitoring and tracing
+- **High-Performance Core**: Main claim processing without tracing overhead
+- **Optional Observability**: Opik available for secondary analysis functions when needed
 - Enhanced error handling and state management
 - Better reliability and maintainability
+- Comprehensive workflow visibility from start to finish
 
 ### Manual Setup
 

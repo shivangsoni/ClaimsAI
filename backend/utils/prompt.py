@@ -1,5 +1,13 @@
 """
-Prompts for Claims Document Analysis using LangFlow
+Prompts for Claims Document Analysis using LangGraph with Optimized Processing
+
+Performance Features:
+- Core claim document analysis runs without tracing overhead for maximum performance
+- OpikTracer callbacks available for secondary functions (suggestions, comparisons) when needed
+- LangGraph workflows optimized for speed and reliability
+- Clean, fast processing without unnecessary telemetry in the critical path
+
+This provides the best balance of performance and observability for production claims processing.
 """
 
 # System prompts for different roles
